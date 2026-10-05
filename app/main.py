@@ -187,6 +187,37 @@ def get_group(group_id: int, db: Session = Depends(get_db)):
     return group_to_schema(get_group_or_404(db, group_id))
 
 
+@app.patch(
+    "/groups/{group_id}",
+    response_model=schemas.GroupOut,
+    tags=["Группы"],
+    summary="Изменить группу (цена, день оплаты, лимит участников)",
+    description=(
+        "Меняет только переданные поля. Уже выставленные счета НЕ пересчитываются: "
+        "их сумма зафиксирована в момент начисления. Новая цена влияет только на "
+        "будущие начисления и на текущие доли участников."
+    ),
+)
+def update_group(group_id: int, data: schemas.GroupUpdate, db: Session = Depends(get_db)):
+    group = get_group_or_404(db, group_id)
+    # exclude_unset=True — берём только те поля, которые реально прислали в запросе.
+    changes = data.model_dump(exclude_unset=True)
+
+    # Нельзя сделать лимит меньше, чем уже есть участников в группе.
+    new_max = changes.get("max_members")
+    if new_max is not None and new_max < len(group.memberships):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"В группе уже {len(group.memberships)} участников — лимит не может быть меньше",
+        )
+
+    for field, value in changes.items():
+        setattr(group, field, value)
+    db.commit()
+    db.refresh(group)
+    return group_to_schema(group)
+
+
 @app.post(
     "/groups/{group_id}/members",
     response_model=schemas.GroupOut,

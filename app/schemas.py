@@ -42,6 +42,23 @@ class GroupCreate(BaseModel):
     owner_id: int = Field(description="Кто оплачивает подписку сервису", examples=[1])
 
 
+class GroupUpdate(BaseModel):
+    """
+    Изменение группы. Передаются только те поля, которые нужно поменять, —
+    остальные останутся прежними. Владельца группы (owner_id) и валюту менять нельзя.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=100, examples=["Netflix с семьёй"])
+    service_name: str | None = Field(default=None, min_length=1, max_length=100, examples=["Netflix"])
+    total_price: int | None = Field(default=None, gt=0, description="Цена подписки в месяц, ₸", examples=[8000])
+    billing_day: int | None = Field(
+        default=None, ge=1, le=28, description="До какого числа месяца нужно заплатить", examples=[10]
+    )
+    max_members: int | None = Field(
+        default=None, ge=2, le=10, description="Максимум участников по тарифу", examples=[6]
+    )
+
+
 class MemberShare(BaseModel):
     user_id: int
     name: str
