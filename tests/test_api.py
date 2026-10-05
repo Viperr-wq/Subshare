@@ -147,6 +147,62 @@ def test_owner_cannot_leave(client):
     assert client.delete(f"/groups/{group_id}/members/{owner}").status_code == 400
 
 
+def test_edit_group_recalculates_shares_but_keeps_old_invoices(client):
+    group_id, _, _ = make_netflix_group(client)
+
+    # Выставляем счета за октябрь по старой цене: 6000 ₸ / 4 участника → по 1500 ₸
+    before = client.post(f"/groups/{group_id}/payments/2026-10").json()
+    assert all(p["amount"] == 1500 for p in before["payments"])
+
+    # Поднимаем цену подписки 6000 → 8000 ₸
+    response = client.patch(f"/groups/{group_id}", json={"total_price": 8000})
+    assert response.status_code == 200
+    group = response.json()
+    assert group["total_price"] == 8000
+    # Доли пересчитались сами: 8000 ₸ / 4 → по 2000 ₸
+    assert [m["share"] for m in group["members"]] == [2000, 2000, 2000, 2000]
+
+    # А уже выставленные счета остались прежними (сумма зафиксирована при начислении)
+    after = client.get(f"/groups/{group_id}/payments/2026-10").json()
+    assert all(p["amount"] == 1500 for p in after["payments"])
+
+
+def test_edit_group_partial_update(client):
+    group_id, _, _ = make_netflix_group(client)
+
+    # Меняем только название и день оплаты — остальные поля не трогаем
+    response = client.patch(
+        f"/groups/{group_id}", json={"name": "Netflix с семьёй", "billing_day": 10}
+    )
+    assert response.status_code == 200
+    group = response.json()
+    assert group["name"] == "Netflix с семьёй"
+    assert group["billing_day"] == 10
+    # Непереданные поля остались прежними
+    assert group["service_name"] == "Netflix"
+    assert group["total_price"] == 6000
+    assert group["max_members"] == 4
+
+
+def test_edit_group_max_members_not_below_current(client):
+    group_id, _, _ = make_netflix_group(client)  # в группе уже 4 участника
+
+    # Нельзя поставить лимит меньше текущего числа участников
+    response = client.patch(f"/groups/{group_id}", json={"max_members": 3})
+    assert response.status_code == 400
+
+
+def test_edit_group_bad_input_rejected(client):
+    group_id, _, _ = make_netflix_group(client)
+
+    # Цена должна быть больше нуля
+    assert client.patch(f"/groups/{group_id}", json={"total_price": 0}).status_code == 422
+    # День оплаты только 1–28
+    assert client.patch(f"/groups/{group_id}", json={"billing_day": 40}).status_code == 422
+    # Несуществующая группа
+    assert client.patch("/groups/999", json={"name": "X"}).status_code == 404
+
+
 def test_group_is_full(client):
     group_id, _, _ = make_netflix_group(client)
     extra = make_user(client, "Ерлан", "+77010000005")
