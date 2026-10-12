@@ -190,14 +190,8 @@ def login(data: schemas.LoginIn, db: Session = Depends(get_db)):
     return user
 
 
-@app.get(
-    "/users",
-    response_model=list[schemas.UserOut],
-    tags=["Пользователи"],
-    summary="Список пользователей",
-)
-def list_users(db: Session = Depends(get_db)):
-    return db.scalars(select(models.User).order_by(models.User.id)).all()
+# Списка всех пользователей (GET /users) нарочно нет: входа по паролю или SMS пока нет,
+# и такой список показывал бы любому имена и телефоны всех людей в SubShare.
 
 
 @app.get(

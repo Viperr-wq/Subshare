@@ -303,7 +303,8 @@ def test_invite_existing_user_keeps_registered_name(client):
     ).json()
     assert group["members"][-1]["user_id"] == friends[2]
     assert group["members"][-1]["name"] == "Тимур"
-    assert len(client.get("/users").json()) == 4
+    # Пользователей по-прежнему четверо: пятого (id 5) не появилось
+    assert client.get("/users/5").status_code == 404
 
 
 def test_invite_to_full_group_does_not_create_user(client):
@@ -372,4 +373,11 @@ def test_simultaneous_duplicate_gives_409(client, monkeypatch):
     monkeypatch.setattr("app.main.find_user_by_phone", lambda db, phone: None)
     response = client.post("/users", json={"name": "Аружан", "phone": "+77010000001"})
     assert response.status_code == 409
-    assert len(client.get("/users").json()) == 1
+    # Дубликат в базу не попал: второго пользователя (id 2) нет
+    assert client.get("/users/2").status_code == 404
+
+
+def test_users_list_is_not_public(client):
+    make_user(client, "Аружан", "+77010000001")
+    # Списка всех пользователей с телефонами нет — его мог бы открыть кто угодно
+    assert client.get("/users").status_code == 405
