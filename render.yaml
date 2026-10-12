@@ -1,0 +1,45 @@
+# Blueprint для Render: описание того, как запустить SubShare в интернете.
+# Render → New → Blueprint → выбрать этот репозиторий — и Render сам создаст оба сервиса.
+# Пошаговая инструкция — в файле DEPLOY.md.
+services:
+  # ---------- API: FastAPI + база PostgreSQL в Neon ----------
+  - type: web
+    name: subshare-kz-api # адрес будет https://subshare-kz-api.onrender.com
+    runtime: python
+    plan: free # бесплатный тариф (без этой строки Render выберет платный)
+    region: frankfurt # тот же город, что и база Neon
+    buildCommand: pip install -r requirements.txt
+    # При каждом запуске: демо-данные (только если база пустая), затем сам сервер
+    startCommand: python seed.py && fastapi run app/main.py --port $PORT
+    healthCheckPath: /
+    buildFilter:
+      ignoredPaths:
+        - mobile/** # правки только в приложении не перезапускают API
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.12"
+      - key: DATABASE_URL
+        sync: false # адрес базы Neon — секрет: Render спросит его при создании
+
+  # ---------- Веб-версия мобильного приложения (Expo) ----------
+  - type: web
+    name: subshare-kz # адрес будет https://subshare-kz.onrender.com
+    runtime: static
+    buildCommand: cd mobile && npm ci && npx expo export --platform web --clear
+    staticPublishPath: mobile/dist
+    buildFilter:
+      paths:
+        - mobile/** # пересобираем, когда меняется приложение
+        - render.yaml # ...или адрес API ниже
+    routes:
+      # Любой адрес (например, /group/5) открывает приложение, дальше оно разберётся само
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: EXPO_PUBLIC_API_URL
+        value: https://subshare-kz-api.onrender.com # если Render выдал API другой адрес — поменяйте здесь
+      - key: NODE_VERSION
+        value: "22.20.0"
+      - key: SKIP_INSTALL_DEPS
+        value: "true" # зависимости ставит сама команда сборки (npm ci)
