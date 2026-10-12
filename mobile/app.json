@@ -43,6 +43,12 @@
         }
       ]
     ],
-    "scheme": "subshare"
+    "scheme": "subshare",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "30310028-5c44-4705-852b-fcda847b2778"
+      }
+    }
   }
 }
