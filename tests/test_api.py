@@ -224,3 +224,152 @@ def test_bad_input_rejected(client):
     assert client.get(f"/groups/{group_id}/payments/2026-13").status_code == 422
     # Несуществующая группа
     assert client.get("/groups/999").status_code == 404
+
+
+# ---------- Для мобильного приложения ----------
+
+
+def test_login_by_phone(client):
+    user_id = make_user(client, "Аружан", "+77010000001")
+
+    response = client.post("/login", json={"phone": "+77010000001"})
+    assert response.status_code == 200
+    assert response.json()["id"] == user_id
+
+    # Незнакомый номер — 404, номер не в формате +7XXXXXXXXXX — 422
+    assert client.post("/login", json={"phone": "+77019999999"}).status_code == 404
+    assert client.post("/login", json={"phone": "8701"}).status_code == 422
+
+
+def test_get_user_profile(client):
+    user_id = make_user(client, "Аружан", "+77010000001")
+    assert client.get(f"/users/{user_id}").json()["name"] == "Аружан"
+    assert client.get("/users/999").status_code == 404
+
+
+def test_user_groups_lists_only_own_groups(client):
+    group_id, owner, friends = make_netflix_group(client)
+    # Ещё одна группа: её создал Данияр, Аружан в ней нет
+    other_id = client.post(
+        "/groups",
+        json={
+            "name": "Музыка",
+            "service_name": "Spotify",
+            "total_price": 3000,
+            "billing_day": 10,
+            "max_members": 6,
+            "owner_id": friends[0],
+        },
+    ).json()["id"]
+
+    assert [g["id"] for g in client.get(f"/users/{owner}/groups").json()] == [group_id]
+    assert [g["id"] for g in client.get(f"/users/{friends[0]}/groups").json()] == [
+        group_id,
+        other_id,
+    ]
+    assert client.get("/users/999/groups").status_code == 404
+
+
+def test_invite_by_phone(client):
+    group_id, _, friends = make_netflix_group(client)
+    # Освобождаем место: Тимур выходит из группы
+    left = client.delete(f"/groups/{group_id}/members/{friends[2]}")
+    assert left.status_code == 200
+    assert left.json()["members_count"] == 3
+
+    # Нового человека SubShare регистрирует сам — по имени и номеру
+    response = client.post(
+        f"/groups/{group_id}/invite", json={"name": "Ерлан", "phone": "+77010000005"}
+    )
+    assert response.status_code == 200
+    assert response.json()["members"][-1]["name"] == "Ерлан"
+    assert client.post("/login", json={"phone": "+77010000005"}).status_code == 200
+
+    # Повторно добавить того же человека нельзя
+    again = client.post(
+        f"/groups/{group_id}/invite", json={"name": "Ерлан", "phone": "+77010000005"}
+    )
+    assert again.status_code == 409
+
+
+def test_invite_existing_user_keeps_registered_name(client):
+    group_id, _, friends = make_netflix_group(client)
+    # Тимур вышел из группы
+    assert client.delete(f"/groups/{group_id}/members/{friends[2]}").status_code == 200
+
+    # Тимур уже зарегистрирован — находим его по номеру, нового пользователя не создаём
+    group = client.post(
+        f"/groups/{group_id}/invite", json={"name": "Тима", "phone": "+77010000004"}
+    ).json()
+    assert group["members"][-1]["user_id"] == friends[2]
+    assert group["members"][-1]["name"] == "Тимур"
+    assert len(client.get("/users").json()) == 4
+
+
+def test_invite_to_full_group_does_not_create_user(client):
+    group_id, _, _ = make_netflix_group(client)  # уже 4 из 4
+    response = client.post(
+        f"/groups/{group_id}/invite", json={"name": "Ерлан", "phone": "+77010000005"}
+    )
+    assert response.status_code == 400
+    # После ошибки Ерлан не должен остаться в базе
+    assert client.post("/login", json={"phone": "+77010000005"}).status_code == 404
+
+
+def test_debt_shows_whom_to_pay(client):
+    group_id, _, friends = make_netflix_group(client)
+    client.post(f"/groups/{group_id}/payments/2026-10")
+
+    debt = client.get(f"/users/{friends[1]}/debts").json()[0]
+    assert debt["owner_name"] == "Аружан"
+    assert debt["owner_phone"] == "+77010000001"
+
+
+def test_delete_group(client):
+    group_id, _, friends = make_netflix_group(client)
+    client.post(f"/groups/{group_id}/payments/2026-10")
+
+    assert client.delete(f"/groups/{group_id}").status_code == 204
+    assert client.get(f"/groups/{group_id}").status_code == 404
+    # Вместе с группой удалились и её счета
+    assert client.get(f"/users/{friends[1]}/debts").json() == []
+    assert client.delete(f"/groups/{group_id}").status_code == 404
+
+
+def test_cors_allows_web_app(client):
+    # Веб-версия приложения открыта на другом адресе — сервер должен разрешить ей запросы
+    response = client.get("/", headers={"Origin": "https://subshare-app.onrender.com"})
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
+def test_phone_only_with_usual_digits(client):
+    # Номер из «полноширинных» цифр выглядит так же, но это другие символы — не принимаем
+    odd_phone = "+7０７０１０００００１"
+    assert client.post("/users", json={"name": "А", "phone": odd_phone}).status_code == 422
+    assert client.post("/login", json={"phone": odd_phone}).status_code == 422
+
+
+def test_too_big_price_rejected(client):
+    group_id, owner, _ = make_netflix_group(client)
+    # Лишние нули при вводе цены — понятная ошибка 422, а не сбой сервера
+    too_big = {"total_price": 3_000_000_000}
+    assert client.patch(f"/groups/{group_id}", json=too_big).status_code == 422
+    new_group = {
+        "name": "X",
+        "service_name": "X",
+        "billing_day": 1,
+        "max_members": 2,
+        "owner_id": owner,
+        **too_big,
+    }
+    assert client.post("/groups", json=new_group).status_code == 422
+
+
+def test_simultaneous_duplicate_gives_409(client, monkeypatch):
+    make_user(client, "Аружан", "+77010000001")
+    # Имитируем два одновременных запроса: проверка «такой номер уже есть?» не успела
+    # увидеть первого пользователя, и дубликат остановила сама база данных.
+    monkeypatch.setattr("app.main.find_user_by_phone", lambda db, phone: None)
+    response = client.post("/users", json={"name": "Аружан", "phone": "+77010000001"})
+    assert response.status_code == 409
+    assert len(client.get("/users").json()) == 1

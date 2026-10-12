@@ -10,7 +10,10 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -28,9 +31,29 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="SubShare API",
     description="Сервис для совместной оплаты подписок: группы, доли, статусы оплаты.",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
+
+# Веб-версия приложения открывается с другого адреса (домена), чем API.
+# Без этой настройки браузер не даст ей обращаться к серверу (правило CORS).
+# Куки и авторизации пока нет, поэтому разрешаем запросы с любого адреса.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(IntegrityError)
+async def duplicate_error(_request, _exc):
+    # Два одинаковых запроса пришли одновременно (двойное нажатие, повтор, пока сервер
+    # «просыпается»), и база не дала создать дубликат. Отвечаем понятной ошибкой, а не 500.
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={"detail": "Эти данные уже сохранены — обновите экран"},
+    )
 
 
 # ---------- Вспомогательные функции ----------
@@ -48,6 +71,22 @@ def get_group_or_404(db: Session, group_id: int) -> models.SubscriptionGroup:
     if group is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Группа {group_id} не найдена")
     return group
+
+
+def find_user_by_phone(db: Session, phone: str) -> models.User | None:
+    return db.scalar(select(models.User).where(models.User.phone == phone))
+
+
+def add_member_to_group(group: models.SubscriptionGroup, user_id: int) -> None:
+    """Добавляет пользователя в группу, если он ещё не в ней и есть свободное место."""
+    if any(m.user_id == user_id for m in group.memberships):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Пользователь уже в группе")
+    if len(group.memberships) >= group.max_members:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"В группе уже максимум участников ({group.max_members})",
+        )
+    group.memberships.append(models.Membership(user_id=user_id))
 
 
 def check_period(period: str) -> None:
@@ -98,6 +137,8 @@ def payment_to_schema(payment: models.Payment) -> schemas.PaymentOut:
         is_overdue=payment.status == models.PAYMENT_PENDING and payment.due_date < date.today(),
         method=payment.method,
         paid_at=payment.paid_at,
+        owner_name=payment.group.owner.name,
+        owner_phone=payment.group.owner.phone,
     )
 
 
@@ -120,12 +161,32 @@ def root():
     summary="Зарегистрировать пользователя",
 )
 def create_user(data: schemas.UserCreate, db: Session = Depends(get_db)):
-    if db.scalar(select(models.User).where(models.User.phone == data.phone)):
+    if find_user_by_phone(db, data.phone):
         raise HTTPException(status.HTTP_409_CONFLICT, "Пользователь с таким телефоном уже есть")
     user = models.User(name=data.name, phone=data.phone)
     db.add(user)
     db.commit()
     db.refresh(user)
+    return user
+
+
+@app.post(
+    "/login",
+    response_model=schemas.UserOut,
+    tags=["Пользователи"],
+    summary="Войти по номеру телефона",
+    description=(
+        "Учебный MVP: вход без SMS-кода — сервер просто находит пользователя по номеру. "
+        "Настоящая авторизация (код из SMS) — следующий этап."
+    ),
+)
+def login(data: schemas.LoginIn, db: Session = Depends(get_db)):
+    user = find_user_by_phone(db, data.phone)
+    if user is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Пользователь с таким номером не найден — зарегистрируйтесь",
+        )
     return user
 
 
@@ -137,6 +198,33 @@ def create_user(data: schemas.UserCreate, db: Session = Depends(get_db)):
 )
 def list_users(db: Session = Depends(get_db)):
     return db.scalars(select(models.User).order_by(models.User.id)).all()
+
+
+@app.get(
+    "/users/{user_id}",
+    response_model=schemas.UserOut,
+    tags=["Пользователи"],
+    summary="Профиль пользователя",
+)
+def get_user(user_id: int, db: Session = Depends(get_db)):
+    return get_user_or_404(db, user_id)
+
+
+@app.get(
+    "/users/{user_id}/groups",
+    response_model=list[schemas.GroupOut],
+    tags=["Пользователи"],
+    summary="Группы, в которых состоит пользователь",
+)
+def user_groups(user_id: int, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    groups = db.scalars(
+        select(models.SubscriptionGroup)
+        .join(models.Membership)
+        .where(models.Membership.user_id == user_id)
+        .order_by(models.SubscriptionGroup.id)
+    ).all()
+    return [group_to_schema(g) for g in groups]
 
 
 @app.get(
@@ -227,16 +315,32 @@ def update_group(group_id: int, data: schemas.GroupUpdate, db: Session = Depends
 def add_member(group_id: int, data: schemas.AddMember, db: Session = Depends(get_db)):
     group = get_group_or_404(db, group_id)
     get_user_or_404(db, data.user_id)
+    add_member_to_group(group, data.user_id)
+    db.commit()
+    db.refresh(group)
+    return group_to_schema(group)
 
-    if any(m.user_id == data.user_id for m in group.memberships):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Пользователь уже в группе")
-    if len(group.memberships) >= group.max_members:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"В группе уже максимум участников ({group.max_members})",
-        )
 
-    group.memberships.append(models.Membership(user_id=data.user_id))
+@app.post(
+    "/groups/{group_id}/invite",
+    response_model=schemas.GroupOut,
+    tags=["Группы"],
+    summary="Добавить участника по номеру телефона",
+    description=(
+        "Так добавляют друга из приложения: по имени и номеру. Если человека с таким "
+        "номером ещё нет в SubShare, он будет зарегистрирован с указанным именем."
+    ),
+)
+def invite_member(group_id: int, data: schemas.UserCreate, db: Session = Depends(get_db)):
+    group = get_group_or_404(db, group_id)
+    user = find_user_by_phone(db, data.phone)
+    if user is None:
+        user = models.User(name=data.name, phone=data.phone)
+        db.add(user)
+        db.flush()  # чтобы у нового пользователя появился id
+    # Если добавить нельзя (группа полная или он уже в ней), здесь будет ошибка,
+    # и новый пользователь не сохранится: db.commit() ниже не выполнится.
+    add_member_to_group(group, user.id)
     db.commit()
     db.refresh(group)
     return group_to_schema(group)
@@ -264,6 +368,19 @@ def leave_group(group_id: int, user_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(group)
     return group_to_schema(group)
+
+
+@app.delete(
+    "/groups/{group_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Группы"],
+    summary="Удалить группу",
+    description="Удаляет группу вместе со списком участников и историей платежей.",
+)
+def delete_group(group_id: int, db: Session = Depends(get_db)):
+    group = get_group_or_404(db, group_id)
+    db.delete(group)
+    db.commit()
 
 
 # ---------- Платежи ----------

@@ -10,12 +10,23 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Казахстанский номер: +7 и 10 цифр. Именно [0-9], а не \d: \d пропускает и «экзотические»
+# цифры (например, полноширинные ０-９), и тогда один номер мог бы записаться двумя способами.
+PHONE_PATTERN = r"^\+7[0-9]{10}$"
+
+# Верхняя граница цены подписки — защита от лишних нулей при вводе
+MAX_PRICE = 10_000_000
+
 # ---------- Пользователи ----------
 
 
 class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100, examples=[" "])
-    phone: str = Field(pattern=r"^\+7\d{10}$", examples=[" "])
+    phone: str = Field(pattern=PHONE_PATTERN, examples=[" "])
+
+
+class LoginIn(BaseModel):
+    phone: str = Field(pattern=PHONE_PATTERN, examples=["+77010000001"])
 
 
 class UserOut(BaseModel):
@@ -32,7 +43,9 @@ class UserOut(BaseModel):
 class GroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100, examples=["Netflix с друзьями"])
     service_name: str = Field(min_length=1, max_length=100, examples=["Netflix"])
-    total_price: int = Field(gt=0, description="Цена подписки в месяц, ₸", examples=[6000])
+    total_price: int = Field(
+        gt=0, le=MAX_PRICE, description="Цена подписки в месяц, ₸", examples=[6000]
+    )
     billing_day: int = Field(
         ge=1, le=28, description="До какого числа месяца нужно заплатить", examples=[5]
     )
@@ -50,7 +63,9 @@ class GroupUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=100, examples=["Netflix с семьёй"])
     service_name: str | None = Field(default=None, min_length=1, max_length=100, examples=["Netflix"])
-    total_price: int | None = Field(default=None, gt=0, description="Цена подписки в месяц, ₸", examples=[8000])
+    total_price: int | None = Field(
+        default=None, gt=0, le=MAX_PRICE, description="Цена подписки в месяц, ₸", examples=[8000]
+    )
     billing_day: int | None = Field(
         default=None, ge=1, le=28, description="До какого числа месяца нужно заплатить", examples=[10]
     )
@@ -99,6 +114,8 @@ class PaymentOut(BaseModel):
     is_overdue: bool = Field(description="Срок прошёл, а оплаты нет")
     method: str = Field(description="Способ оплаты. Сейчас: manual — перевод вручную")
     paid_at: datetime | None
+    owner_name: str = Field(description="Кому переводить деньги — владелец группы")
+    owner_phone: str = Field(description="Номер владельца для перевода (например, через Kaspi)")
 
 
 class PeriodStatus(BaseModel):
