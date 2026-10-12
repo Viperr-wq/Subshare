@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "SubShare",
+    "slug": "subshare",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "kz.subshare.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#101727",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "kz.subshare.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png",
+      "name": "SubShare",
+      "shortName": "SubShare",
+      "themeColor": "#101727",
+      "backgroundColor": "#101727",
+      "description": "Совместная оплата подписок: доли, счета и статусы оплаты",
+      "lang": "ru"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#101727"
+        }
+      ]
+    ],
+    "scheme": "subshare"
+  }
+}
