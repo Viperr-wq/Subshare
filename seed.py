@@ -67,12 +67,12 @@ def main():
         db.close()
         return
 
-    aruzhan = models.User(name="Аружан", phone="+77010000001")
-    daniyar = models.User(name="Данияр", phone="+77010000002")
-    madina = models.User(name="Мадина", phone="+77010000003")
-    timur = models.User(name="Тимур", phone="+77010000004")
-    aliya = models.User(name="Алия", phone="+77010000005")
-    erlan = models.User(name="Ерлан", phone="+77010000006")
+    aruzhan = models.User(name="Артем", phone="+77010000001")
+    daniyar = models.User(name="1", phone="+77010000002")
+    madina = models.User(name="2", phone="+77010000003")
+    timur = models.User(name="3", phone="+77010000004")
+    aliya = models.User(name="4", phone="+77010000005")
+    erlan = models.User(name="5", phone="+77010000006")
     db.add_all([aruzhan, daniyar, madina, timur, aliya, erlan])
     db.flush()  # чтобы у пользователей появились id
 
