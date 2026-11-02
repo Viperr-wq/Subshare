@@ -127,11 +127,10 @@ const TRANSLATIONS = {
   ],
   "Открыть Telegram": ["Telegram-ды ашу", "Open Telegram"],
   "Или наведите камеру телефона на код": ["Немесе телефон камерасын кодқа бағыттаңыз", "Or point your phone camera at the code"],
-  "В боте SubShare нажмите «Поделиться номером», а потом вернитесь сюда — вход произойдёт сам.": [
-    "SubShare ботында «Нөмірмен бөлісу» батырмасын басып, осында оралыңыз — кіру өздігінен орындалады.",
-    "In the SubShare bot, tap “Share phone number”, then come back here — you'll be signed in automatically.",
+  "В боте SubShare нажмите «Поделиться номером» — бот пришлёт код из 6 цифр. Введите его здесь.": [
+    "SubShare ботында «Нөмірмен бөлісу» батырмасын басыңыз — бот 6 цифрлы код жібереді. Оны осында енгізіңіз.",
+    "In the SubShare bot, tap “Share phone number” — the bot will send you a 6-digit code. Enter it here.",
   ],
-  "Ждём подтверждения…": ["Растауды күтудеміз…", "Waiting for confirmation…"],
   "Продолжая, вы принимаете документы SubShare:": ["Жалғастыра отырып, сіз SubShare құжаттарын қабылдайсыз:", "By continuing, you accept the SubShare documents:"],
   "Готово!": ["Дайын!", "Done!"],
   "Аккаунт SubShare готов. Пользуйтесь им в браузере или в приложении для Android.": [
@@ -171,6 +170,7 @@ const TRANSLATIONS = {
   "Номер — 10 цифр после +7": ["Нөмір — +7-ден кейін 10 цифр", "The number is 10 digits after +7"],
   "Пароль — не короче 8 символов": ["Құпиясөз — кемінде 8 таңба", "The password must be at least 8 characters"],
   "Введите 6 цифр из письма": ["Хаттағы 6 цифрды енгізіңіз", "Enter the 6 digits from the email"],
+  "Введите 6 цифр из Telegram": ["Telegram-нан келген 6 цифрды енгізіңіз", "Enter the 6 digits from Telegram"],
   "Мы отправили код на {email}. Если письма нет, проверьте папку «Спам».": ["Кодты {email} поштасына жібердік. Хат келмесе, «Спам» қалтасын тексеріңіз.", "We've sent a code to {email}. If you can't find it, check your spam folder."],
   "Отправили новый код на {email}. Если письма нет, проверьте папку «Спам».": ["Жаңа кодты {email} поштасына жібердік. Хат келмесе, «Спам» қалтасын тексеріңіз.", "We've sent a new code to {email}. If you can't find it, check your spam folder."],
   "Регистрация за минуту — через Telegram или по почте": ["Бір минутта тіркелу — Telegram немесе пошта арқылы", "Sign up in a minute — with Telegram or email"],

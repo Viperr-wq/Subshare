@@ -310,7 +310,7 @@
         <p class="wait"><span class="spinner"></span><span data-t>Готовим ссылку для входа…</span></p>
       </div>
 
-      <div data-step="waiting">
+      <form data-step="waiting" id="pin-form" novalidate>
         <h2 data-t>Вход через Telegram</h2>
         <p data-t>Аккаунт создастся сам: Telegram подтвердит ваш номер, пароль не нужен.</p>
         <a class="btn btn-primary btn-wide" id="login-link" href="#" target="_blank" rel="noopener" data-t>Открыть Telegram</a>
@@ -318,14 +318,16 @@
           <div id="qr-image"></div>
           <figcaption data-t>Или наведите камеру телефона на код</figcaption>
         </figure>
-        <p class="hint" data-t>В боте SubShare нажмите «Поделиться номером», а потом вернитесь сюда — вход произойдёт сам.</p>
-        <p class="wait"><span class="spinner"></span><span data-t>Ждём подтверждения…</span></p>
+        <p class="hint" data-t>В боте SubShare нажмите «Поделиться номером» — бот пришлёт код из 6 цифр. Введите его здесь.</p>
+        <input class="code-input" name="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" aria-label="Код из Telegram" />
+        <p class="form-error" id="pin-error" hidden></p>
+        <button type="submit" class="btn btn-primary btn-wide" data-t>Войти</button>
         <p class="consent">
           <span data-t>Продолжая, вы принимаете документы SubShare:</span>
           <a data-app="terms" href="/app/terms" target="_blank" data-t>Условия использования</a> ·
           <a data-app="privacy" href="/app/privacy" target="_blank" data-t>Политика конфиденциальности</a>
         </p>
-      </div>
+      </form>
 
       <div data-step="done">
         <span class="done-icon" aria-hidden="true">✓</span>

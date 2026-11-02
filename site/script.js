@@ -13,7 +13,6 @@ const APK_URL = "https://github.com/Viperr-wq/Subshare/releases/latest/download/
 const SESSION_KEY = "subshare.session"; // { token, user }
 const LANGUAGE_KEY = "subshare.language";
 const LANGUAGES = ["ru", "kk", "en"];
-const CHECK_EVERY_MS = 2000;
 
 // ---------- Языки ----------
 
@@ -136,11 +135,12 @@ for (const button of document.querySelectorAll("[data-login]")) {
 // Как в приложении (mobile/app/welcome.js):
 //   1. сервер выдаёт секретный код и ссылку на бота;
 //   2. человек открывает бота и нажимает «Поделиться номером»;
-//   3. сайт тем временем раз в 2 секунды спрашивает сервер, готово ли.
+//   3. бот присылает код из 6 цифр — человек вводит его здесь и получает ключ входа.
 
 const dialog = document.getElementById("login");
 let step = null; // loading | waiting | done | error
 let attempt = 0; // номер попытки входа: ответы на старые попытки не нужны
+let loginCode = null; // секретный код входа: с ним и с кодом из бота сервер выдаст ключ
 
 function openLogin() {
   // Ждём бота или вводят почту — продолжаем с того же места. Иначе — выбор способа
@@ -167,34 +167,34 @@ async function startLogin() {
     if (current !== attempt) return;
     document.getElementById("login-link").href = login.url;
     showQr(login.url);
+    loginCode = login.code;
+    pinForm.reset();
+    showFormError("pin-error", null);
     showStep("waiting");
-    waitForTelegram(login.code, current);
   } catch (e) {
     if (current === attempt) showError(e.message);
   }
 }
 
-// Спрашиваем сервер, подтвердил ли человек вход в боте. Окно можно закрыть — ждём и тогда
-async function waitForTelegram(code, current) {
-  while (current === attempt) {
-    try {
-      const result = await api("POST", "/login/telegram/check", { code });
-      if (current !== attempt) return;
-      if (result.done) {
-        finishLogin(result);
-        return;
-      }
-    } catch (e) {
-      if (e.status === 410) {
-        // Код устарел (прошло 10 минут) — начинать вход нужно заново
-        if (current === attempt) showError(e.message);
-        return;
-      }
-      // Нет связи — не страшно, спросим ещё раз
-    }
-    await new Promise((resolve) => setTimeout(resolve, CHECK_EVERY_MS));
+// Код из бота → ключ входа
+const pinForm = document.getElementById("pin-form");
+pinForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const pin = new FormData(pinForm).get("pin").replace(/\D/g, "");
+  if (pin.length !== 6) {
+    showFormError("pin-error", t("Введите 6 цифр из Telegram"));
+    return;
   }
-}
+  whileBusy(event.submitter || pinForm.querySelector("[type=submit]"), async () => {
+    try {
+      finishLogin(await api("POST", "/login/telegram/check", { code: loginCode, pin }));
+    } catch (e) {
+      // Вход устарел (прошло 10 минут) или код 5 раз ввели неверно — начинать нужно заново
+      if (e.status === 410) showError(e.message);
+      else showFormError("pin-error", e.message);
+    }
+  });
+});
 
 // Вход готов: запоминаем ключ там же, где его ищет веб-версия приложения
 function finishLogin({ token, user }) {
