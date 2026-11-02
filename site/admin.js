@@ -52,7 +52,6 @@ async function loadStats() {
       client.email || "—",
       LANGUAGE_NAMES[client.language] || client.language,
       client.groups,
-      client.created.split("-").reverse().join("."), // 2026-11-02 → 02.11.2026
     ]) {
       row.insertCell().textContent = value;
     }

@@ -13,7 +13,7 @@ import hmac
 import os
 import threading
 from contextlib import asynccontextmanager
-from datetime import timedelta, timezone
+from datetime import timedelta
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +27,6 @@ from . import mail, models, schemas, telegram
 from .database import Base, engine, get_db
 from .i18n import LANGUAGES, current_language, pick_language, tr
 from .logic import (
-    KZ_TIMEZONE,
     check_password,
     due_date_for,
     format_tenge,
@@ -1468,8 +1467,6 @@ def admin_stats(user: models.User = Depends(get_current_user), db: Session = Dep
                 phone=u.phone,
                 email=u.email,
                 language=u.language,
-                # В базе время UTC — показываем дату по Казахстану
-                created=u.created_at.replace(tzinfo=timezone.utc).astimezone(KZ_TIMEZONE).date(),
                 groups=group_counts.get(u.id, 0),
             )
             for u in accounts

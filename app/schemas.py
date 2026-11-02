@@ -142,7 +142,6 @@ class ClientOut(BaseModel):
     phone: str
     email: str | None
     language: str
-    created: date = Field(description="Когда появился аккаунт (дата по времени Казахстана)")
     groups: int = Field(description="В скольких группах состоит")
 
 

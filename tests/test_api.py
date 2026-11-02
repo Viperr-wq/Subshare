@@ -857,6 +857,7 @@ def test_admin_stats_only_for_team(client, monkeypatch):
     stats = client.get("/admin/stats", headers=owner["auth"]).json()
     assert (stats["accounts"], stats["new_week"], stats["invited"], stats["groups"]) == (2, 2, 1, 1)
     assert [(c["name"], c["groups"]) for c in stats["clients"]] == [("Данияр", 0), ("Аружан", 1)]
+    assert "created" not in stats["clients"][0]  # дату регистрации на страницу команды не отдаём
 
 
 # ---------- Регистрация по почте ----------
