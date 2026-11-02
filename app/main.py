@@ -236,7 +236,7 @@ def send_email_code(db: Session, email: str, purpose: str, **registration) -> sc
         .where(models.EmailCode.email == email, models.EmailCode.purpose == purpose)
         .order_by(models.EmailCode.id.desc())
     )
-    # Новый код — не чаще раза в минуту: бесплатно можно отправить только 300 писем в день
+    # Новый код — не чаще раза в минуту: через Gmail можно отправить только 100 писем в день
     if latest and latest.expires_at - EMAIL_CODE_TTL + EMAIL_RESEND_AFTER > utcnow():
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
