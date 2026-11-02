@@ -38,7 +38,6 @@ async function loadStats() {
 
   statusText.textContent = `Вы вошли как ${session.user.name}. Данные на ${new Date().toLocaleString("ru-RU")}.`;
   document.getElementById("accounts").textContent = stats.accounts;
-  document.getElementById("new-week").textContent = stats.new_week;
   document.getElementById("invited").textContent = stats.invited;
   document.getElementById("groups").textContent = stats.groups;
 

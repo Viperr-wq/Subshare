@@ -1455,10 +1455,8 @@ def admin_stats(user: models.User = Depends(get_current_user), db: Session = Dep
             select(models.Membership.user_id, func.count()).group_by(models.Membership.user_id)
         ).all()
     )
-    week_ago = utcnow() - timedelta(days=7)
     return schemas.StatsOut(
         accounts=len(accounts),
-        new_week=sum(1 for u in accounts if u.created_at >= week_ago),
         invited=len(users) - len(accounts),
         groups=db.scalar(select(func.count()).select_from(models.SubscriptionGroup)),
         clients=[

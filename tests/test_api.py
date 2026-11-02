@@ -855,9 +855,10 @@ def test_admin_stats_only_for_team(client, monkeypatch):
     assert client.get("/admin/stats").status_code == 401
     assert client.get("/admin/stats", headers=stranger["auth"]).status_code == 403
     stats = client.get("/admin/stats", headers=owner["auth"]).json()
-    assert (stats["accounts"], stats["new_week"], stats["invited"], stats["groups"]) == (2, 2, 1, 1)
+    assert (stats["accounts"], stats["invited"], stats["groups"]) == (2, 1, 1)
     assert [(c["name"], c["groups"]) for c in stats["clients"]] == [("Данияр", 0), ("Аружан", 1)]
-    assert "created" not in stats["clients"][0]  # дату регистрации на страницу команды не отдаём
+    # Ни дат регистрации, ни числа новых за неделю на страницу команды не отдаём
+    assert "new_week" not in stats and "created" not in stats["clients"][0]
 
 
 # ---------- Регистрация по почте ----------

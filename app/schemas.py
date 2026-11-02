@@ -149,7 +149,6 @@ class StatsOut(BaseModel):
     """Статистика для команды SubShare (страница admin.html на сайте)."""
 
     accounts: int = Field(description="Аккаунтов: людей, которые сами входили в SubShare")
-    new_week: int = Field(description="Из них появились за последние 7 дней")
     invited: int = Field(description="Добавлены в группу по номеру, но ещё ни разу не входили")
     groups: int = Field(description="Групп подписок")
     clients: list[ClientOut] = Field(description="Аккаунты, новые сверху")
