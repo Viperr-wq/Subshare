@@ -18,6 +18,7 @@ import { formatMoney, plural, splitPrice } from "../../../lib/format";
 import { findService, OTHER_SERVICE, SERVICES } from "../../../lib/services";
 import { colors, fonts, radius } from "../../../lib/theme";
 import { useLoad } from "../../../lib/useLoad";
+import { t } from "../../../lib/i18n";
 
 const ALL_SERVICES = [...SERVICES, OTHER_SERVICE];
 // Лимит для новой цены. Сервер разрешает до 10 000 000 ₸ (app/schemas.py), поэтому
@@ -40,11 +41,11 @@ export default function EditGroupScreen() {
       <Screen contentStyle={styles.centered}>
         <EmptyState
           icon="lock-closed-outline"
-          title="Изменять группу может только владелец"
-          text={`Цену, день оплаты и лимит участников меняет ${owner.name} — владелец группы.`}
+          title={t("Изменять группу может только владелец")}
+          text={t("Цену, день оплаты и лимит участников меняет {name} — владелец группы.", { name: owner.name })}
           action={
             <Button
-              title="Назад"
+              title={t("Назад")}
               icon="arrow-back"
               variant="secondary"
               small
@@ -109,7 +110,7 @@ function EditForm({ group }) {
 
     try {
       await api.updateGroup(group.id, changes);
-      toast("Изменения сохранены");
+      toast(t("Изменения сохранены"));
       // Пока ждали сервер, человек мог сам уйти с экрана — тогда «назад» закрыл бы уже другой экран
       if (navigation.isFocused()) goBack(group.id);
     } catch (e) {
@@ -119,7 +120,7 @@ function EditForm({ group }) {
 
   return (
     <Screen>
-      <Text style={styles.sectionTitle}>Какую подписку делим?</Text>
+      <Text style={styles.sectionTitle}>{t("Какую подписку делим?")}</Text>
       <View style={styles.grid}>
         {ALL_SERVICES.map((service) => (
           <ServiceChip
@@ -133,62 +134,61 @@ function EditForm({ group }) {
 
       {isOther ? (
         <Field
-          label="Название сервиса"
+          label={t("Название сервиса")}
           value={customService}
           onChangeText={setCustomService}
-          placeholder="Например, Кинопоиск"
+          placeholder={t("Например, Кинопоиск")}
           maxLength={100}
           error={showErrors ? errors.service : null}
         />
       ) : null}
 
-      <Text style={[styles.sectionTitle, styles.secondSection]}>Детали группы</Text>
+      <Text style={[styles.sectionTitle, styles.secondSection]}>{t("Детали группы")}</Text>
       <Field
-        label="Название группы"
+        label={t("Название группы")}
         value={name}
         onChangeText={setName}
-        placeholder="Например, Netflix вскладчину"
+        placeholder={t("Например, Netflix вскладчину")}
         maxLength={100}
         error={showErrors ? errors.name : null}
       />
       <Field
-        label="Цена подписки в месяц, ₸"
+        label={t("Цена подписки в месяц, ₸")}
         value={groupDigits(price)}
         onChangeText={(text) => setPrice(cleanDigits(text))}
         keyboardType="number-pad"
-        placeholder="Например, 6 000"
+        placeholder={t("Например, 6 000")}
         error={showErrors ? errors.price : null}
       />
       <Stepper
-        label="Оплата до"
+        label={t("Оплата до")}
         value={billingDay}
         onChange={setBillingDay}
         min={1}
         max={28}
-        suffix="числа"
-        hint="Участники переводят долю до этого дня"
+        suffix={t("числа")}
+        hint={t("Участники переводят долю до этого дня")}
       />
       <Stepper
-        label="Участников по тарифу"
+        label={t("Участников по тарифу")}
         value={maxMembers}
         onChange={setMaxMembers}
         min={minMembers}
         max={10}
-        suffix="чел."
-        hint={`Сейчас в группе ${group.members_count} ${plural(group.members_count, "участник", "участника", "участников")}`}
+        suffix={t("чел.")}
+        hint={t("Сейчас в группе {members_count} {value}", { members_count: group.members_count, value: plural(group.members_count, "участник", "участника", "участников") })}
       />
 
       <View style={styles.note}>
         <Ionicons name="information-circle" size={20} color={colors.sapphire} />
         <View style={styles.noteBody}>
           <Text style={styles.noteText}>
-            Уже выставленные счета не изменятся — новая цена попадёт в следующие счета. Доли
-            участников пересчитаются сразу.
+            {t("Уже выставленные счета не изменятся — новая цена попадёт в следующие счета. Доли участников пересчитаются сразу.")}
           </Text>
           {/* Строку не показываем, если на вид ничего не меняется: «833–834 ₸ → 833–834 ₸» */}
           {newShares !== oldShares ? (
             <View style={styles.shareRow}>
-              <Text style={styles.shareText}>Доля каждого:</Text>
+              <Text style={styles.shareText}>{t("Доля каждого:")}</Text>
               <Text style={styles.shareText}>{oldShares}</Text>
               <Ionicons name="arrow-forward" size={14} color={colors.textMuted} />
               <Text style={[styles.shareText, styles.shareNew]}>{newShares}</Text>
@@ -197,8 +197,8 @@ function EditForm({ group }) {
         </View>
       </View>
 
-      <Button title="Сохранить" icon="checkmark-circle" onPress={handleSave} />
-      {showErrors && hasErrors ? <ErrorNote text="Проверьте поля выше" /> : null}
+      <Button title={t("Сохранить")} icon="checkmark-circle" onPress={handleSave} />
+      {showErrors && hasErrors ? <ErrorNote text={t("Проверьте поля выше")} /> : null}
       {serverError ? <ErrorNote text={serverError} /> : null}
     </Screen>
   );
@@ -213,15 +213,15 @@ function goBack(groupId) {
 // Проверяет форму и возвращает тексты ошибок по полям. Пустой объект — всё верно.
 function validate({ serviceName, name, price, oldPrice }) {
   const errors = {};
-  if (!serviceName) errors.service = "Введите название сервиса";
+  if (!serviceName) errors.service = t("Введите название сервиса");
 
-  if (!name.trim()) errors.name = "Введите название группы";
-  else if (name.trim().length > 100) errors.name = "Не длиннее 100 символов";
+  if (!name.trim()) errors.name = t("Введите название группы");
+  else if (name.trim().length > 100) errors.name = t("Не длиннее 100 символов");
 
-  if (!price) errors.price = "Укажите цену подписки";
+  if (!price) errors.price = t("Укажите цену подписки");
   // Лимит — только для новой цены. Иначе группу с ценой выше лимита (её могли создать
   // через /docs) нельзя было бы даже переименовать.
-  else if (price !== oldPrice && price > MAX_PRICE) errors.price = `Не больше ${formatMoney(MAX_PRICE)}`;
+  else if (price !== oldPrice && price > MAX_PRICE) errors.price = t("Не больше {amount}", { amount: formatMoney(MAX_PRICE) });
 
   return errors;
 }
@@ -260,7 +260,7 @@ function ServiceChip({ service, selected, onPress }) {
     >
       <ServiceIcon serviceName={service.name} size={28} />
       <Text style={[styles.chipText, selected && styles.chipTextSelected]} numberOfLines={2}>
-        {service.name}
+        {t(service.name)}
       </Text>
     </Pressable>
   );

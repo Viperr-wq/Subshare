@@ -1,30 +1,16 @@
 // Состояния экрана: загрузка, ошибка и «пока пусто».
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 import { colors, fonts } from "../lib/theme";
 import { Button } from "./Button";
+import { t } from "../lib/i18n";
 
-// Загрузка. Если сервер долго не отвечает, объясняем почему: бесплатный
-// хостинг «засыпает» без запросов, и первое пробуждение занимает до минуты.
 export function Loading() {
-  const [slow, setSlow] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setSlow(true), 4000);
-    return () => clearTimeout(timer);
-  }, []);
-
   return (
     <View style={styles.center}>
       <ActivityIndicator size="large" color={colors.sapphire} />
-      <Text style={styles.text}>{slow ? "Сервер просыпается…" : "Загружаем…"}</Text>
-      {slow ? (
-        <Text style={styles.hint}>
-          Бесплатный сервер засыпает, если к нему долго не обращаются. Первое включение
-          занимает до минуты.
-        </Text>
-      ) : null}
+      <Text style={styles.text}>{t("Загрузка…")}</Text>
     </View>
   );
 }
@@ -35,9 +21,9 @@ export function ErrorView({ message, onRetry }) {
       <View style={[styles.iconCircle, { backgroundColor: "#FFE4E4" }]}>
         <Ionicons name="cloud-offline-outline" size={30} color="#D63C3C" />
       </View>
-      <Text style={styles.title}>Не получилось загрузить</Text>
+      <Text style={styles.title}>{t("Не получилось загрузить")}</Text>
       <Text style={styles.hint}>{message}</Text>
-      {onRetry ? <Button title="Повторить" icon="refresh" onPress={onRetry} small /> : null}
+      {onRetry ? <Button title={t("Повторить")} icon="refresh" onPress={onRetry} small /> : null}
     </View>
   );
 }

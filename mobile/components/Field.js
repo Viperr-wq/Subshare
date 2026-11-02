@@ -1,9 +1,11 @@
 // Поля ввода с подписью сверху и текстом ошибки снизу.
+import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { formatPhoneDigits } from "../lib/format";
 import { colors, fonts, radius } from "../lib/theme";
+import { t } from "../lib/i18n";
 
 // Обычное поле. Все остальные свойства (value, onChangeText, keyboardType…)
 // передаются прямо в TextInput.
@@ -27,7 +29,7 @@ export function Field({ label, error, hint, style, ...inputProps }) {
 
 // Поле телефона: «+7» уже стоит слева, человек вводит только 10 цифр.
 // value и onChangeText работают с цифрами без пробелов: «7010000001».
-export function PhoneField({ label = "Номер телефона", value, onChangeText, error, hint, ...rest }) {
+export function PhoneField({ label = t("Номер телефона"), value, onChangeText, error, hint, ...rest }) {
   const [focused, setFocused] = useState(false);
 
   function handleChange(text) {
@@ -58,6 +60,48 @@ export function PhoneField({ label = "Номер телефона", value, onCha
           style={styles.phoneInput}
           {...rest}
         />
+      </View>
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {!error && hint ? <Text style={styles.hint}>{hint}</Text> : null}
+    </View>
+  );
+}
+
+// Поле пароля. «Глаз» справа показывает пароль — так проще заметить опечатку
+// (восстановить забытый пароль пока нельзя). Остальные свойства — прямо в TextInput.
+export function PasswordField({ label = t("Пароль"), error, hint, ...inputProps }) {
+  const [focused, setFocused] = useState(false);
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <View style={styles.wrap}>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {/* Рамка — как у поля телефона */}
+      <View style={[styles.phoneRow, focused && styles.focused, error && styles.invalid]}>
+        <TextInput
+          placeholderTextColor="#9AA2BC"
+          secureTextEntry={!visible}
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={128}
+          {...inputProps}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={styles.passwordInput}
+        />
+        <Pressable
+          onPress={() => setVisible(!visible)}
+          hitSlop={8}
+          style={styles.eye}
+          accessibilityRole="button"
+          accessibilityLabel={visible ? t("Скрыть пароль") : t("Показать пароль")}
+        >
+          <Ionicons
+            name={visible ? "eye-off-outline" : "eye-outline"}
+            size={22}
+            color={colors.textMuted}
+          />
+        </Pressable>
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {!error && hint ? <Text style={styles.hint}>{hint}</Text> : null}
@@ -101,6 +145,15 @@ const styles = StyleSheet.create({
     color: colors.text,
     outlineStyle: "none",
   },
+  passwordInput: {
+    flex: 1,
+    minHeight: 50,
+    fontFamily: fonts.regular,
+    fontSize: 16,
+    color: colors.text,
+    outlineStyle: "none",
+  },
+  eye: { alignSelf: "stretch", justifyContent: "center", paddingHorizontal: 14 },
   focused: { borderColor: colors.sapphire },
   invalid: { borderColor: colors.overdue },
   error: { fontFamily: fonts.regular, fontSize: 13, color: "#D63C3C" },

@@ -1,6 +1,7 @@
 // Все обращения к серверу SubShare (бэкенд на FastAPI) собраны здесь.
 // Экраны не пишут fetch сами, а вызывают готовые функции: api.getGroup(5) и т.д.
 // Список эндпоинтов сервера — на странице <адрес сервера>/docs.
+import { getLanguage, t } from "./i18n";
 
 // Адрес сервера задаётся переменной окружения EXPO_PUBLIC_API_URL при сборке
 // (на Render — в render.yaml, для APK — в eas.json, на своём компьютере — в файле
@@ -18,38 +19,68 @@ export class ApiError extends Error {
   }
 }
 
+// Ключ входа (токен) того, кто вошёл. Его задаёт lib/auth.js после входа,
+// а request() прикладывает к каждому запросу: заголовок «Authorization: Bearer <ключ>».
+let authToken = null;
+// Что делать, если сервер ответил «ключ недействителен» (401). Тоже задаёт lib/auth.js
+let onUnauthorized = () => {};
+
+export function setAuthToken(token) {
+  authToken = token;
+}
+
+export function setOnUnauthorized(handler) {
+  onUnauthorized = handler;
+}
+
 async function request(method, path, body) {
+  const token = authToken; // с каким ключом ушёл запрос
+  const headers = { "Accept-Language": getLanguage() }; // на этом языке сервер пишет ошибки
+  if (body) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   let response;
   try {
     response = await fetch(API_URL + path, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
-    throw new ApiError("Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.", 0);
+    throw new ApiError(t("Нет связи с сервером. Проверьте интернет и попробуйте ещё раз."), 0);
   }
+
+  // Ключ больше не действует (например, базу на сервере очистили) — просим войти заново.
+  // Сверяем с текущим ключом: ответ мог прийти, когда человек уже вошёл по-новому
+  if (response.status === 401 && token && token === authToken) onUnauthorized();
 
   if (response.status === 204) return null; // «успешно, ответа нет» (например, после удаления)
 
   const data = await response.json().catch(() => null);
   if (!response.ok) {
-    // Сервер присылает понятный текст ошибки на русском в поле detail
-    let message = `Ошибка сервера (${response.status}). Попробуйте ещё раз.`;
+    // Сервер присылает понятный текст ошибки (на языке приложения) в поле detail
+    let message = t("Ошибка сервера ({status}). Попробуйте ещё раз.", { status: response.status });
     if (typeof data?.detail === "string") message = data.detail;
-    else if (response.status === 422) message = "Проверьте введённые данные";
+    else if (response.status === 422) message = t("Проверьте введённые данные");
     throw new ApiError(message, response.status);
   }
   return data;
 }
 
 export const api = {
-  // Пользователи
-  login: (phone) => request("POST", "/login", { phone }),
-  register: (name, phone) => request("POST", "/users", { name, phone }),
-  getUser: (userId) => request("GET", `/users/${userId}`),
-  getUserGroups: (userId) => request("GET", `/users/${userId}/groups`),
-  getUserDebts: (userId) => request("GET", `/users/${userId}/debts`),
+  // Вход через Telegram: telegramStart → { code, url }, затем telegramCheck(code),
+  // пока не вернёт { done: true, token, user }. login (по паролю) — только для демо.
+  telegramStart: () => request("POST", "/login/telegram"),
+  telegramCheck: (code) => request("POST", "/login/telegram/check", { code }),
+  login: (phone, password) => request("POST", "/login", { phone, password }),
+  logout: () => request("POST", "/logout"),
+
+  // Профиль
+  getMe: () => request("GET", "/me"),
+  updateMe: (changes) => request("PATCH", "/me", changes), // { name } или { language }
+  deleteMe: () => request("DELETE", "/me"),
+  getMyGroups: () => request("GET", "/me/groups"),
+  getMyDebts: () => request("GET", "/me/debts"),
 
   // Группы
   createGroup: (data) => request("POST", "/groups", data),
@@ -63,5 +94,7 @@ export const api = {
   // Платежи за месяц (period — строка «2026-10»)
   getPeriod: (groupId, period) => request("GET", `/groups/${groupId}/payments/${period}`),
   createInvoices: (groupId, period) => request("POST", `/groups/${groupId}/payments/${period}`),
-  markPaid: (paymentId) => request("POST", `/payments/${paymentId}/pay`),
+  markSent: (paymentId) => request("POST", `/payments/${paymentId}/sent`), // участник: «Я перевёл»
+  markPaid: (paymentId) => request("POST", `/payments/${paymentId}/pay`), // владелец: «Получил»
+  markNotReceived: (paymentId) => request("POST", `/payments/${paymentId}/not-received`),
 };

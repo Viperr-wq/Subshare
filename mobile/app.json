@@ -2,7 +2,7 @@
   "expo": {
     "name": "SubShare",
     "slug": "subshare",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -17,7 +17,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "kz.subshare.app"
+      "package": "kz.subshare.app",
+      "versionCode": 2
     },
     "web": {
       "bundler": "metro",

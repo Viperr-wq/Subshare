@@ -6,6 +6,7 @@ import { Platform, StyleSheet, Text, useWindowDimensions, View } from "react-nat
 
 import { colors, fonts } from "../lib/theme";
 import { Logo } from "./Logo";
+import { t } from "../lib/i18n";
 
 export function WebFrame({ children }) {
   const { width, height } = useWindowDimensions();
@@ -26,13 +27,13 @@ export function WebFrame({ children }) {
         <View style={styles.side}>
           <Logo size={72} />
           <Text style={styles.brand}>SubShare</Text>
-          <Text style={styles.tagline}>Подписки вскладчину — без таблиц и неловких напоминаний</Text>
+          <Text style={styles.tagline}>{t("Подписки вскладчину — без таблиц и неловких напоминаний")}</Text>
           <View style={styles.points}>
-            <Point text="Сам делит цену подписки на всех" />
-            <Point text="Показывает, чьи доли уже оплачены" />
-            <Point text="Счета со сроком оплаты — одной кнопкой" />
+            <Point text={t("Сам делит цену подписки на всех")} />
+            <Point text={t("Показывает, чьи доли уже оплачены")} />
+            <Point text={t("Счета со сроком оплаты — одной кнопкой")} />
           </View>
-          <Text style={styles.note}>Веб-версия мобильного приложения</Text>
+          <Text style={styles.note}>{t("Веб-версия мобильного приложения")}</Text>
         </View>
       ) : null}
       <View style={[styles.phone, { height: Math.min(880, height - 48) }]}>{children}</View>

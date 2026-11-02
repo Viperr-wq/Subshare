@@ -1,27 +1,32 @@
-// Экран входа и регистрации. Его видно, только пока никто не вошёл
-// (см. Stack.Protected в app/_layout.js). После signIn(user) приложение само
-// переключится на вкладки — никуда переходить не нужно.
+// Экран входа. Его видно, только пока никто не вошёл (см. Stack.Protected
+// в app/_layout.js). После signIn(...) приложение само переключится на вкладки.
 //
-// Шаг 1 «phone»: номер телефона → вход.
-// Шаг 2 «register»: если такого номера нет (сервер ответил 404) — спрашиваем имя
-// и создаём аккаунт с этим номером.
+// Вход через Telegram:
+//   1. сервер выдаёт секретный код и ссылку на бота (api.telegramStart);
+//   2. приложение открывает бота, человек нажимает в нём «Поделиться номером»;
+//   3. тем временем приложение раз в 2 секунды спрашивает сервер, готово ли (api.telegramCheck).
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useRef, useState } from "react";
-import { Keyboard, KeyboardAvoidingView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "../components/Button";
-import { Field, PhoneField } from "../components/Field";
 import { Logo } from "../components/Logo";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { formatPhone, normalizePhone } from "../lib/format";
+import { LANGUAGES, t, useLanguage } from "../lib/i18n";
 import { colors, fonts, radius } from "../lib/theme";
+import { APK_URL } from "../lib/updates";
 
-// Демо-пользователь Аружан из seed.py — у неё уже есть группы и платежи
+// Демо-вход из seed.py — только при разработке на своём компьютере (__DEV__):
+// в настоящем приложении демо-аккаунта нет
 const DEMO_PHONE = "+77010000001";
+const DEMO_PASSWORD = "demo2026";
+const CHECK_EVERY_MS = 2000;
 
+// Тексты переводятся при показе (t), поэтому здесь они просто по-русски
 const FEATURES = [
   {
     icon: "pie-chart",
@@ -36,124 +41,79 @@ const FEATURES = [
     text: "Показывает, чьи доли уже оплачены",
   },
   {
-    icon: "receipt",
+    icon: "notifications",
     color: colors.violet,
     background: "rgba(157, 112, 252, 0.18)",
-    text: "Счета со сроком оплаты — одной кнопкой",
+    text: "Сам выставляет счета и напоминает в Telegram",
   },
 ];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default function WelcomeScreen() {
   const { signIn } = useAuth();
   const insets = useSafeAreaInsets();
-  const scrollRef = useRef(null);
 
-  const [step, setStep] = useState("phone"); // "phone" или "register"
-  const [digits, setDigits] = useState(""); // 10 цифр номера без +7: «7010000001»
-  const [name, setName] = useState("");
-  const [phoneError, setPhoneError] = useState(null);
-  const [nameError, setNameError] = useState(null);
+  // { code, url } — вход начат, ждём подтверждения номера в боте
+  const [waiting, setWaiting] = useState(null);
   const [error, setError] = useState(null); // ошибка сервера или сети
-  const [slow, setSlow] = useState(false); // сервер долго не отвечает
-  // Что сейчас ждёт ответа сервера: "login", "demo", "register" или null (ничего).
-  // Пока ответа нет, другие действия не запускаем — иначе два ответа придут почти
-  // одновременно и приложение может открыться не под тем аккаунтом.
-  const [busy, setBusy] = useState(null);
 
-  // Когда открывается клавиатура, прокручиваем вниз, к форме, чтобы поле было видно.
-  // Пауза нужна, чтобы экран успел подвинуться над клавиатурой.
+  // Пока ждём — спрашиваем сервер, подтвердил ли человек вход в боте
   useEffect(() => {
-    const subscription = Keyboard.addListener("keyboardDidShow", () => {
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
-    });
-    return () => subscription.remove();
-  }, []);
-
-  // Ждёт ответа сервера на действие action ("login", "demo" или "register").
-  // Если ответа нет дольше 4 секунд — показываем подсказку:
-  // бесплатный сервер «засыпает», и первое включение занимает до минуты.
-  async function waitForServer(action, request) {
-    setBusy(action);
-    setError(null);
-    const timer = setTimeout(() => setSlow(true), 4000);
-    try {
-      return await request;
-    } finally {
-      clearTimeout(timer);
-      setSlow(false);
-      setBusy(null);
-    }
-  }
-
-  // Вызывается и кнопкой «Войти», и клавишей Enter (кнопкой «Go» на клавиатуре телефона)
-  async function handleLogin() {
-    if (busy) return; // уже ждём ответа сервера — второй запрос не отправляем
-    if (digits.length !== 10) {
-      setPhoneError("Введите 10 цифр номера после +7");
-      return;
-    }
-    try {
-      const user = await waitForServer("login", api.login(normalizePhone(digits)));
-      await signIn(user);
-    } catch (e) {
-      if (e.status === 404) {
-        setStep("register"); // такого номера ещё нет — знакомимся
-      } else {
-        setError(e.message);
+    if (!waiting) return;
+    let stopped = false;
+    async function check() {
+      while (!stopped) {
+        try {
+          const result = await api.telegramCheck(waiting.code);
+          if (result.done) {
+            await signIn({ token: result.token, user: result.user });
+            return;
+          }
+        } catch (e) {
+          if (e.status === 410) {
+            // Код устарел (прошло 10 минут) — начинать вход нужно заново
+            setWaiting(null);
+            setError(e.message);
+            return;
+          }
+          // Нет связи — не страшно, спросим ещё раз
+        }
+        await sleep(CHECK_EVERY_MS);
       }
     }
-  }
+    check();
+    return () => {
+      stopped = true;
+    };
+  }, [waiting]);
 
-  async function handleDemo() {
-    if (busy) return;
+  // Пока ждём ответа сервера, на кнопке крутится индикатор (см. components/Button.js)
+  async function startTelegram() {
+    setError(null);
     try {
-      const user = await waitForServer("demo", api.login(DEMO_PHONE));
-      await signIn(user);
-    } catch (e) {
-      setError(
-        e.status === 404
-          ? "Демо-данные не загружены. Запустите на сервере: python seed.py"
-          : e.message
-      );
-    }
-  }
-
-  async function handleRegister() {
-    if (busy) return;
-    // Имя — от 1 до 100 символов, как на сервере. Длиннее 100 ввести не даст maxLength у поля.
-    const cleanName = name.trim();
-    if (!cleanName) {
-      setNameError("Напишите, как вас зовут");
-      return;
-    }
-    try {
-      const user = await waitForServer("register", api.register(cleanName, normalizePhone(digits)));
-      await signIn(user);
+      const login = await api.telegramStart();
+      setWaiting(login);
+      openTelegram(login.url);
     } catch (e) {
       setError(e.message);
     }
   }
 
-  function changePhone(text) {
-    setDigits(text);
-    setPhoneError(null);
-    setError(null);
+  function openTelegram(url) {
+    Linking.openURL(url).catch(() =>
+      setError(t("Не получилось открыть Telegram. Установите его и попробуйте ещё раз."))
+    );
   }
 
-  function changeName(text) {
-    setName(text);
-    setNameError(null);
+  async function handleDemo() {
     setError(null);
+    try {
+      await signIn(await api.login(DEMO_PHONE, DEMO_PASSWORD));
+    } catch (e) {
+      setError(e.status === 401 ? t("Демо-данных нет. Запустите: python seed.py") : e.message);
+    }
   }
-
-  function backToPhone() {
-    setStep("phone");
-    setNameError(null);
-    setError(null);
-  }
-
-  // Неразрывные пробелы (\u00A0) — чтобы номер не разорвался на две строки
-  const phoneText = formatPhone(`+7${digits}`).replace(/ /g, "\u00A0");
 
   return (
     <View style={styles.root}>
@@ -166,151 +126,127 @@ export default function WelcomeScreen() {
       <View style={[styles.glow, styles.glowMint]} />
 
       <SafeAreaView style={styles.flex} edges={["top"]}>
-        {/* Поднимает форму над клавиатурой. "padding" нужен и на iPhone, и на Android:
-            приложение рисуется «от края до края», и Android сам экран не сжимает.
-            В браузере это обычный View. */}
-        <KeyboardAvoidingView style={styles.flex} behavior="padding">
-          <ScrollView
-            ref={scrollRef}
-            contentContainerStyle={styles.scroll}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            <View style={styles.hero}>
-              <View style={styles.inner}>
-                <Logo size={64} />
-                <Text style={styles.brand} accessibilityRole="header">
-                  SubShare
-                </Text>
-                <Text style={styles.tagline}>
-                  Подписки <Text style={styles.accent}>вскладчину</Text> — без таблиц и неловких
-                  напоминаний
-                </Text>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          <View style={styles.hero}>
+            <View style={styles.inner}>
+              <LanguageSwitch />
+              <Logo size={64} />
+              <Text style={styles.brand} accessibilityRole="header">
+                SubShare
+              </Text>
+              <Text style={styles.tagline}>
+                {t("Подписки вскладчину — без таблиц и неловких напоминаний")}
+              </Text>
 
-                <View style={styles.features}>
-                  {FEATURES.map((feature) => (
-                    <View key={feature.text} style={styles.feature}>
-                      <View style={[styles.featureIcon, { backgroundColor: feature.background }]}>
-                        <Ionicons name={feature.icon} size={18} color={feature.color} />
-                      </View>
-                      <Text style={styles.featureText}>{feature.text}</Text>
+              <View style={styles.features}>
+                {FEATURES.map((feature) => (
+                  <View key={feature.text} style={styles.feature}>
+                    <View style={[styles.featureIcon, { backgroundColor: feature.background }]}>
+                      <Ionicons name={feature.icon} size={18} color={feature.color} />
                     </View>
-                  ))}
-                </View>
+                    <Text style={styles.featureText}>{t(feature.text)}</Text>
+                  </View>
+                ))}
               </View>
             </View>
+          </View>
 
-            {/* Белая «шторка» с формой. Снизу — отступ под системную полоску телефона */}
-            <View style={[styles.sheet, { paddingBottom: 24 + insets.bottom }]}>
-              <View style={[styles.inner, styles.form]}>
-                {step === "phone" ? (
-                  <>
-                    <View style={styles.titleBlock}>
-                      <Text style={styles.title} accessibilityRole="header">
-                        Вход по номеру телефона
-                      </Text>
-                    </View>
-                    <PhoneField
-                      label={null}
-                      accessibilityLabel="Номер телефона"
-                      value={digits}
-                      onChangeText={changePhone}
-                      error={phoneError}
-                      returnKeyType="go"
-                      onSubmitEditing={handleLogin}
-                    />
-                    {/* Кнопка сама показывает загрузку, только когда нажали именно её.
-                        Если вход начали клавишей Enter — меняем надпись на «Входим…» */}
-                    <Button
-                      title={busy === "login" ? "Входим…" : "Войти"}
-                      onPress={handleLogin}
-                      disabled={busy === "demo"}
-                    />
-                    <ServerMessage slow={slow} error={error} />
-
-                    <View style={styles.noteRow}>
-                      <Ionicons
-                        name="information-circle-outline"
-                        size={15}
-                        color={colors.textMuted}
-                      />
-                      <Text style={styles.note}>Без SMS-кода — это учебная версия</Text>
-                    </View>
-
-                    <View style={styles.divider}>
-                      <View style={styles.dividerLine} />
-                      <Text style={styles.dividerText}>или</Text>
-                      <View style={styles.dividerLine} />
-                    </View>
-
-                    <Button
-                      title="Посмотреть демо"
-                      variant="secondary"
-                      icon="play"
-                      onPress={handleDemo}
-                      disabled={busy === "login"}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <View style={styles.titleBlock}>
-                      <Text style={styles.title} accessibilityRole="header">
-                        Давайте знакомиться
-                      </Text>
-                      <Text style={styles.text}>
-                        Номер <Text style={styles.phone}>{phoneText}</Text> ещё не зарегистрирован
-                      </Text>
-                    </View>
-                    <Field
-                      label="Как вас зовут?"
-                      placeholder="Например, Аружан"
-                      value={name}
-                      onChangeText={changeName}
-                      error={nameError}
-                      hint="Это имя увидят участники ваших групп"
-                      maxLength={100}
-                      autoFocus
-                      autoCapitalize="words"
-                      autoComplete="name"
-                      returnKeyType="done"
-                      onSubmitEditing={handleRegister}
-                    />
-                    <Button
-                      title={busy === "register" ? "Создаём аккаунт…" : "Создать аккаунт"}
-                      onPress={handleRegister}
-                    />
-                    <ServerMessage slow={slow} error={error} />
-                    <Button
-                      title="Изменить номер"
-                      variant="ghost"
-                      icon="arrow-back"
-                      onPress={backToPhone}
-                      disabled={busy === "register"}
-                    />
-                  </>
-                )}
+          {/* Белая «шторка» со входом. Снизу — отступ под системную полоску телефона */}
+          <View style={[styles.sheet, { paddingBottom: 24 + insets.bottom }]}>
+            <View style={[styles.inner, styles.form]}>
+              <View style={styles.titleBlock}>
+                <Text style={styles.title} accessibilityRole="header">
+                  {waiting ? t("Подтвердите вход в Telegram") : t("Вход через Telegram")}
+                </Text>
+                <Text style={styles.text}>
+                  {waiting
+                    ? t("В боте SubShare нажмите «Поделиться номером», а потом вернитесь сюда — вход произойдёт сам.")
+                    : t("Откроется бот SubShare. Поделитесь в нём номером телефона — пароль не нужен.")}
+                </Text>
               </View>
+
+              {waiting ? (
+                <>
+                  <View style={styles.message}>
+                    <Ionicons name="hourglass-outline" size={18} color={colors.sapphire} />
+                    <Text style={styles.messageText}>{t("Ждём подтверждения…")}</Text>
+                  </View>
+                  <Button
+                    title={t("Открыть Telegram")}
+                    icon="paper-plane"
+                    onPress={() => openTelegram(waiting.url)}
+                  />
+                  <Button title={t("Отмена")} variant="ghost" onPress={() => setWaiting(null)} />
+                </>
+              ) : (
+                <Button title={t("Войти через Telegram")} icon="paper-plane" onPress={startTelegram} />
+              )}
+              <ServerMessage error={error} />
+
+              <Text style={styles.note}>
+                {t("Нажимая «Войти», вы принимаете")}{" "}
+                <Text style={styles.link} onPress={() => router.push("/terms")}>
+                  {t("условия использования")}
+                </Text>{" "}
+                {t("и")}{" "}
+                <Text style={styles.link} onPress={() => router.push("/privacy")}>
+                  {t("политику конфиденциальности")}
+                </Text>
+              </Text>
+
+              {Platform.OS === "web" ? (
+                <Button
+                  title={t("Скачать приложение для Android")}
+                  variant="secondary"
+                  icon="logo-android"
+                  onPress={() => Linking.openURL(APK_URL)}
+                />
+              ) : null}
+
+              {__DEV__ ? (
+                <Button
+                  title={t("Демо-вход (только при разработке)")}
+                  variant="ghost"
+                  icon="play"
+                  onPress={handleDemo}
+                />
+              ) : null}
             </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     </View>
   );
 }
 
-// Под главной кнопкой: подсказка, что сервер просыпается, или текст ошибки
-function ServerMessage({ slow, error }) {
-  if (slow) {
-    return (
-      <View style={styles.message}>
-        <Ionicons name="hourglass-outline" size={18} color={colors.sapphire} />
-        <Text style={styles.messageText}>
-          Сервер просыпается — первое включение занимает до минуты
-        </Text>
-      </View>
-    );
-  }
+// Кнопки «Рус · Қаз · Eng» в углу экрана
+function LanguageSwitch() {
+  const { language, setLanguage } = useLanguage();
+  return (
+    <View style={styles.languages}>
+      {LANGUAGES.map((l) => (
+        <Pressable
+          key={l.code}
+          onPress={() => setLanguage(l.code)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: l.code === language }}
+          style={[styles.language, l.code === language && styles.languageActive]}
+        >
+          <Text style={[styles.languageText, l.code === language && styles.languageTextActive]}>
+            {l.label}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+// Под главной кнопкой: текст ошибки
+function ServerMessage({ error }) {
   if (error) {
     return (
       <View style={[styles.message, styles.messageError]}>
@@ -381,7 +317,6 @@ const styles = StyleSheet.create({
     maxWidth: 330,
     marginTop: 6,
   },
-  accent: { color: colors.mint },
   features: { gap: 12, marginTop: 26 },
   feature: { flexDirection: "row", alignItems: "center", gap: 12 },
   featureIcon: {
@@ -411,12 +346,18 @@ const styles = StyleSheet.create({
   titleBlock: { gap: 6, marginBottom: 4 },
   title: { fontFamily: fonts.headingSemi, fontSize: 18, color: colors.text },
   text: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 21, color: colors.textMuted },
-  phone: { fontFamily: fonts.semibold, color: colors.text },
-  noteRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
-  note: { fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted },
-  divider: { flexDirection: "row", alignItems: "center", gap: 12 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
-  dividerText: { fontFamily: fonts.medium, fontSize: 13, color: colors.textMuted },
+  note: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, color: colors.textMuted, textAlign: "center" },
+  languages: { flexDirection: "row", alignSelf: "flex-end", gap: 6, marginBottom: 12 },
+  language: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: radius.round,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
+  languageActive: { backgroundColor: colors.white },
+  languageText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.lavender },
+  languageTextActive: { color: colors.midnight },
+  link: { fontFamily: fonts.semibold, color: colors.sapphire },
   message: {
     flexDirection: "row",
     alignItems: "flex-start",

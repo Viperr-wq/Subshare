@@ -1,9 +1,21 @@
-// Как показывать на экране деньги, телефоны, даты и месяцы.
+// Как показывать на экране деньги, телефоны, даты и месяцы — на языке приложения.
+import { getLanguage, t } from "./i18n";
 
-const MONTHS = [
-  "январь", "февраль", "март", "апрель", "май", "июнь",
-  "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
-];
+const MONTHS = {
+  ru: [
+    "январь", "февраль", "март", "апрель", "май", "июнь",
+    "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+  ],
+  kk: [
+    "қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым",
+    "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан",
+  ],
+  en: [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ],
+};
+// По-русски «5 октября», а не «5 октябрь»
 const MONTHS_GENITIVE = [
   "января", "февраля", "марта", "апреля", "мая", "июня",
   "июля", "августа", "сентября", "октября", "ноября", "декабря",
@@ -39,9 +51,12 @@ export function formatPhone(phone) {
   return `+7 ${formatPhoneDigits(digits)}`;
 }
 
-// «2026-10-05» → «5 октября»
+// «2026-10-05» → «5 октября», «5 қазан», «October 5»
 export function formatDate(isoDate) {
   const [, month, day] = isoDate.split("-").map(Number);
+  const language = getLanguage();
+  if (language === "en") return `${MONTHS.en[month - 1]} ${day}`;
+  if (language === "kk") return `${day} ${MONTHS.kk[month - 1]}`;
   return `${day} ${MONTHS_GENITIVE[month - 1]}`;
 }
 
@@ -58,15 +73,29 @@ export function shiftPeriod(period, delta) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-// «2026-10» → «Октябрь 2026»
-export function periodLabel(period) {
-  const [year, month] = period.split("-").map(Number);
-  const name = MONTHS[month - 1];
-  return `${name[0].toUpperCase()}${name.slice(1)} ${year}`;
+// «2026-10» → «октябрь» (по-английски — «October»: там месяц всегда с большой буквы)
+export function monthName(period) {
+  return MONTHS[getLanguage()][Number(period.slice(5, 7)) - 1];
 }
 
-// plural(3, "участник", "участника", "участников") → «участника»
+// «2026-10» → «Октябрь 2026» — для заголовков
+export function periodLabel(period) {
+  const name = monthName(period);
+  return `${name[0].toUpperCase()}${name.slice(1)} ${period.slice(0, 4)}`;
+}
+
+// «2026-10» → «октябрь 2026» — для середины фразы: «за октябрь 2026»
+export function periodName(period) {
+  return `${monthName(period)} ${period.slice(0, 4)}`;
+}
+
+// plural(3, "участник", "участника", "участников") → «участника».
+// Слова передаются по-русски, перевод — из lib/translations.js. По-казахски после
+// числа слово не меняется («3 қатысушы»), по-английски: 1 member, 2 members
 export function plural(n, one, few, many) {
+  const language = getLanguage();
+  if (language === "kk") return t(one);
+  if (language === "en") return t(n === 1 ? one : many);
   const mod10 = n % 10;
   const mod100 = n % 100;
   if (mod10 === 1 && mod100 !== 11) return one;

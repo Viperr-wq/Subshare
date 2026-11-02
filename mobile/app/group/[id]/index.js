@@ -18,12 +18,15 @@ import { paymentState, StatusBadge } from "../../../components/StatusBadge";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { useDialogs } from "../../../lib/dialogs";
+import { t } from "../../../lib/i18n";
 import {
   currentPeriod,
   formatDate,
   formatMoney,
   formatPhone,
+  monthName,
   periodLabel,
+  periodName,
   plural,
   shiftPeriod,
 } from "../../../lib/format";
@@ -31,7 +34,8 @@ import { colors, fonts, radius } from "../../../lib/theme";
 import { useLoad } from "../../../lib/useLoad";
 
 const NBSP = String.fromCharCode(160); // неразрывный пробел: в этом месте строка не переносится
-const PER_MONTH = ` в${NBSP}месяц`; // «в месяц» переносится на новую строку только целиком
+// « в месяц»: переносится на новую строку только целиком
+const perMonth = () => " " + t("в месяц").replace(/ /g, NBSP);
 const MAX_MEMBERS = 10; // больше участников в одной группе сервер не разрешает
 
 export default function GroupScreen() {
@@ -99,7 +103,7 @@ export default function GroupScreen() {
   const canGoForward = period < shiftPeriod(thisMonth, 1); // не дальше следующего месяца
   // Счета — только за текущий и следующий месяц: за прошлый они сразу были бы просроченными
   const canBillPeriod = period >= thisMonth;
-  const monthName = periodLabel(period).toLowerCase(); // «октябрь 2026» — для «за октябрь 2026»
+  const monthText = periodName(period); // «октябрь 2026» — для «за октябрь 2026»
 
   function openEdit() {
     router.push(`/group/${groupId}/edit`);
@@ -115,14 +119,14 @@ export default function GroupScreen() {
   // Повторный вызов безопасен: сервер создаёт только недостающие счета.
   async function createInvoices(target) {
     const due = dueDateFor(target, group.billing_day);
-    const label = periodLabel(target).toLowerCase();
+    const label = periodName(target);
 
     // Срок оплаты уже прошёл — счета сразу станут просроченными, поэтому сначала спрашиваем
     if (due < todayISO()) {
       const ok = await confirm({
-        title: "Срок оплаты уже прошёл",
-        message: `Оплата за ${label} — до ${formatDate(due)}, поэтому счета сразу будут просроченными. Выставить всё равно?`,
-        confirmText: "Выставить",
+        title: t("Срок оплаты уже прошёл"),
+        message: t("Оплата за {label} — до {date}, поэтому счета сразу будут просроченными. Выставить всё равно?", { label, date: formatDate(due) }),
+        confirmText: t("Выставить"),
       });
       if (!ok) return;
     }
@@ -133,7 +137,7 @@ export default function GroupScreen() {
       toast(error.message);
       return;
     }
-    toast(`Счета за ${label} выставлены`);
+    toast(t("Счета за {label} выставлены", { label }));
     if (target === period) {
       // await — кнопка «крутится», пока не придут свежие данные (нельзя нажать второй раз)
       await reloadPayments();
@@ -142,21 +146,50 @@ export default function GroupScreen() {
     }
   }
 
-  async function markPaid(payment) {
-    const isMine = payment.user_id === user?.id;
-    const amount = formatMoney(payment.amount);
-    const month = periodLabel(payment.period).toLowerCase();
+  // Участник: «я перевёл деньги владельцу». Владелец получит сообщение в Telegram
+  async function markSent(payment) {
     const ok = await confirm({
-      title: "Отметить оплату?",
-      message: isMine
-        ? `Подтвердите, что вы перевели ${amount} владельцу группы (${payment.owner_name}).`
-        : `${payment.user_name}: ${amount} за ${month}. Подтвердите, что деньги пришли вам.`,
-      confirmText: "Оплачено",
+      title: t("Отметить перевод?"),
+      message: t("Подтвердите, что вы перевели {amount} владельцу группы ({owner}).", {
+        amount: formatMoney(payment.amount),
+        owner: payment.owner_name,
+      }),
+      confirmText: t("Да, перевод сделан"),
     });
-    if (!ok) return;
+    if (ok) await updatePayment(api.markSent, payment, t("Отмечено — ждём подтверждения владельца"));
+  }
+
+  // Владелец: «деньги пришли». Можно и без отметки участника — например, если отдали наличными
+  async function confirmPaid(payment) {
+    const ok = await confirm({
+      title: t("Деньги получены?"),
+      message: t("{name}: {amount} за {month}. Подтвердите, что деньги пришли вам.", {
+        name: payment.user_name,
+        amount: formatMoney(payment.amount),
+        month: periodName(payment.period),
+      }),
+      confirmText: t("Получены"),
+    });
+    if (ok) await updatePayment(api.markPaid, payment, t("Оплата подтверждена"));
+  }
+
+  // Владелец: участник отметил перевод, а деньги не пришли
+  async function notReceived(payment) {
+    const ok = await confirm({
+      title: t("Деньги не пришли?"),
+      message: t("{name} получит сообщение и сможет отметить перевод снова.", {
+        name: payment.user_name,
+      }),
+      confirmText: t("Не пришли"),
+      danger: true,
+    });
+    if (ok) await updatePayment(api.markNotReceived, payment, t("Участнику сообщили"));
+  }
+
+  async function updatePayment(request, payment, doneText) {
     try {
-      await api.markPaid(payment.id);
-      toast("Оплата отмечена");
+      await request(payment.id);
+      toast(doneText);
     } catch (error) {
       toast(error.message);
     }
@@ -164,17 +197,40 @@ export default function GroupScreen() {
     await reloadPayments();
   }
 
+  // Кнопки под участником: перевод отмечает он сам, а подтверждает — владелец
+  function paymentActions(payment, isMe) {
+    if (!payment || payment.status === "paid") return [];
+    if (isOwner) {
+      const actions = [
+        { title: t("Деньги получены"), icon: "checkmark-done", onPress: () => confirmPaid(payment) },
+      ];
+      if (payment.status === "sent") {
+        actions.push({
+          title: t("Не пришли"),
+          icon: "close",
+          variant: "danger",
+          onPress: () => notReceived(payment),
+        });
+      }
+      return actions;
+    }
+    if (isMe && payment.status === "pending") {
+      return [{ title: t("Отметить перевод"), icon: "checkmark", onPress: () => markSent(payment) }];
+    }
+    return [];
+  }
+
   async function removeMember(member) {
     const ok = await confirm({
-      title: "Удалить участника?",
-      message: `${member.name} больше не будет в группе. История платежей сохранится.`,
-      confirmText: "Удалить",
+      title: t("Удалить участника?"),
+      message: t("{name} больше не будет в группе. История платежей сохранится.", { name: member.name }),
+      confirmText: t("Удалить"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.removeMember(groupId, member.user_id);
-      toast(`${member.name} больше не в группе`);
+      toast(t("{name} больше не в группе", { name: member.name }));
       await reloadAll();
     } catch (error) {
       toast(error.message);
@@ -183,15 +239,15 @@ export default function GroupScreen() {
 
   async function deleteGroup() {
     const ok = await confirm({
-      title: "Удалить группу?",
-      message: "Удалятся участники и история платежей. Это нельзя отменить.",
-      confirmText: "Удалить",
+      title: t("Удалить группу?"),
+      message: t("Удалятся участники и история платежей. Это нельзя отменить."),
+      confirmText: t("Удалить"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.deleteGroup(groupId);
-      toast("Группа удалена");
+      toast(t("Группа удалена"));
       goBack();
     } catch (error) {
       toast(error.message);
@@ -200,15 +256,15 @@ export default function GroupScreen() {
 
   async function leaveGroup() {
     const ok = await confirm({
-      title: "Выйти из группы?",
-      message: "Ваши платежи останутся в истории группы. Вернуться можно, если владелец снова добавит вас.",
-      confirmText: "Выйти",
+      title: t("Выйти из группы?"),
+      message: t("Ваши платежи останутся в истории группы. Вернуться можно, если владелец снова добавит вас."),
+      confirmText: t("Выйти из группы"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.removeMember(groupId, user.id);
-      toast("Вы вышли из группы");
+      toast(t("Вы вышли из группы"));
       goBack();
     } catch (error) {
       toast(error.message);
@@ -223,7 +279,7 @@ export default function GroupScreen() {
           <View style={styles.periodCenter}>
             <Text style={styles.centerText}>{statusLoad.error}</Text>
             <Button
-              title="Повторить"
+              title={t("Повторить")}
               icon="refresh"
               variant="secondary"
               small
@@ -241,7 +297,7 @@ export default function GroupScreen() {
     return (
       <View style={styles.collected}>
         <View style={styles.collectedTop}>
-          <Text style={styles.collectedLabel}>Собрано</Text>
+          <Text style={styles.collectedLabel}>{t("Собрано")}</Text>
           <View style={styles.due}>
             <Ionicons
               name="calendar-outline"
@@ -249,24 +305,27 @@ export default function GroupScreen() {
               color={hasOverdue ? colors.overdue : colors.textMuted}
             />
             <Text style={[styles.dueText, hasOverdue && styles.dueLate]}>
-              до {formatDate(payments[0].due_date)}
+              {t("до {date}", { date: formatDate(payments[0].due_date) })}
             </Text>
           </View>
         </View>
         <Text>
           <Text style={styles.collectedAmount}>{formatMoney(status.collected)}</Text>
-          <Text style={styles.collectedTotal}> из {formatMoney(status.total_to_collect)}</Text>
+          <Text style={styles.collectedTotal}>
+            {" "}
+            {t("из {amount}", { amount: formatMoney(status.total_to_collect) })}
+          </Text>
         </Text>
         <ProgressBar value={status.collected / status.total_to_collect} />
         {status.outstanding > 0 ? (
           <Text style={styles.outstanding}>
-            Осталось собрать{" "}
+            {t("Осталось собрать")}{" "}
             <Text style={styles.outstandingAmount}>{formatMoney(status.outstanding)}</Text>
           </Text>
         ) : (
           <View style={styles.done}>
             <Ionicons name="checkmark-circle" size={18} color={colors.mint} />
-            <Text style={styles.doneText}>Всё собрано — все доли оплачены</Text>
+            <Text style={styles.doneText}>{t("Всё собрано — все доли оплачены")}</Text>
           </View>
         )}
 
@@ -276,11 +335,14 @@ export default function GroupScreen() {
             <View style={styles.unbilledTop}>
               <Ionicons name="person-add-outline" size={18} color={colors.sapphire} />
               <Text style={styles.unbilledText}>
-                Нет счёта за {monthName}: {unbilled.map((m) => m.name).join(", ")}
+                {t("Нет счёта за {month}: {names}", {
+                  month: monthText,
+                  names: unbilled.map((m) => m.name).join(", "),
+                })}
               </Text>
             </View>
             <Button
-              title={unbilled.length > 1 ? "Выставить им счета" : "Выставить счёт"}
+              title={unbilled.length > 1 ? t("Выставить им счета") : t("Выставить счёт")}
               icon="receipt-outline"
               variant="secondary"
               small
@@ -295,13 +357,13 @@ export default function GroupScreen() {
 
   // Счетов за выбранный месяц ещё нет
   function renderNoInvoices() {
-    const title = `Счета за ${monthName} ещё не выставлены`;
+    const title = t("Счета за {monthText} ещё не выставлены", { monthText });
 
     if (!canBillPeriod) {
       return (
         <PeriodMessage
-          title="В этом месяце счета не выставлялись"
-          text={isOwner ? "Счета можно выставить за текущий или следующий месяц." : null}
+          title={t("В этом месяце счета не выставлялись")}
+          text={isOwner ? t("Счета можно выставить за текущий или следующий месяц.") : null}
         />
       );
     }
@@ -310,7 +372,7 @@ export default function GroupScreen() {
       return (
         <PeriodMessage
           title={title}
-          text="Когда счета будут выставлены, здесь появятся статусы оплаты."
+          text={t("Когда счета будут выставлены, здесь появятся статусы оплаты.")}
         />
       );
     }
@@ -320,9 +382,9 @@ export default function GroupScreen() {
       return (
         <PeriodMessage title={title}>
           <View style={styles.periodButtons}>
-            <Button title="Выставить счета" icon="receipt-outline" disabled />
+            <Button title={t("Выставить счета")} icon="receipt-outline" disabled />
           </View>
-          <Text style={styles.centerText}>Сначала добавьте участников</Text>
+          <Text style={styles.centerText}>{t("Сначала добавьте участников")}</Text>
         </PeriodMessage>
       );
     }
@@ -338,21 +400,20 @@ export default function GroupScreen() {
           <View style={styles.due}>
             <Ionicons name="calendar-outline" size={15} color={colors.overdue} />
             <Text style={[styles.dueText, styles.dueLate]}>
-              Срок оплаты был до {formatDate(due)}
+              {t("Срок оплаты был до {date}", { date: formatDate(due) })}
             </Text>
           </View>
           <Text style={styles.centerText}>
-            Если выставить счета сейчас, они сразу будут просроченными. Можно начать со
-            следующего месяца.
+            {t("Если выставить счета сейчас, они сразу будут просроченными. Можно начать со следующего месяца.")}
           </Text>
           <View style={styles.periodButtons}>
             <Button
-              title={`Выставить за ${monthOnly(next)}`}
+              title={t("Выставить за {month}", { month: monthOnly(next) })}
               icon="receipt-outline"
               onPress={() => createInvoices(next)}
             />
             <Button
-              title={`Выставить за ${monthOnly(period)}`}
+              title={t("Выставить за {month}", { month: monthOnly(period) })}
               variant="secondary"
               onPress={() => createInvoices(period)}
             />
@@ -362,14 +423,14 @@ export default function GroupScreen() {
     }
 
     return (
-      <PeriodMessage title={title} text="Участники увидят свою долю и смогут отметить оплату.">
+      <PeriodMessage title={title} text={t("Участники увидят свою долю и смогут отметить оплату.")}>
         <View style={styles.due}>
           <Ionicons name="calendar-outline" size={15} color={colors.textMuted} />
-          <Text style={styles.dueText}>Срок оплаты — до {formatDate(due)}</Text>
+          <Text style={styles.dueText}>{t("Срок оплаты — до {date}", { date: formatDate(due) })}</Text>
         </View>
         <View style={styles.periodButtons}>
           <Button
-            title="Выставить счета"
+            title={t("Выставить счета")}
             icon="receipt-outline"
             onPress={() => createInvoices(period)}
           />
@@ -392,15 +453,15 @@ export default function GroupScreen() {
           </View>
         </View>
         <View style={styles.stats}>
-          <Stat label="Цена" value={formatMoney(group.total_price)} sub="в месяц" />
+          <Stat label={t("Цена")} value={formatMoney(group.total_price)} sub={t("в месяц")} />
           <View style={styles.statDivider} />
           <Stat
-            label="Участники"
-            value={`${group.members_count} из ${group.max_members}`}
-            sub="человек"
+            label={t("Участники")}
+            value={t("{members_count} из {max_members}", { members_count: group.members_count, max_members: group.max_members })}
+            sub={t("человек")}
           />
           <View style={styles.statDivider} />
-          <Stat label="Оплата" value={`до ${group.billing_day}`} sub="числа" />
+          <Stat label={t("Оплата")} value={t("до {billing_day}", { billing_day: group.billing_day })} sub={t("числа")} />
         </View>
       </Card>
 
@@ -417,34 +478,34 @@ export default function GroupScreen() {
         <Card style={styles.viewOnly}>
           <Ionicons name="eye-outline" size={20} color={colors.textMuted} />
           <Text style={styles.viewOnlyText}>
-            Вы больше не в этой группе — доступен только просмотр.
+            {t("Вы больше не в этой группе — доступен только просмотр.")}
           </Text>
         </Card>
       )}
 
       {/* 3. Платежи за выбранный месяц */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Платежи</Text>
+        <Text style={styles.sectionTitle}>{t("Платежи")}</Text>
         <Card>
           <View style={styles.monthRow}>
             <IconButton
               icon="chevron-back"
-              label="Предыдущий месяц"
+              label={t("Предыдущий месяц")}
               onPress={() => setPeriod(shiftPeriod(period, -1))}
             />
             <View style={styles.monthCenter}>
               <Text style={styles.monthTitle}>{periodLabel(period)}</Text>
               {period === thisMonth ? (
-                <Text style={styles.monthHint}>текущий месяц</Text>
+                <Text style={styles.monthHint}>{t("текущий месяц")}</Text>
               ) : (
                 <Pressable onPress={() => setPeriod(thisMonth)} hitSlop={8}>
-                  <Text style={styles.monthLink}>к текущему месяцу</Text>
+                  <Text style={styles.monthLink}>{t("к текущему месяцу")}</Text>
                 </Pressable>
               )}
             </View>
             <IconButton
               icon="chevron-forward"
-              label="Следующий месяц"
+              label={t("Следующий месяц")}
               disabled={!canGoForward}
               onPress={() => setPeriod(shiftPeriod(period, 1))}
             />
@@ -457,12 +518,11 @@ export default function GroupScreen() {
       {/* 4. Участники и статус их оплаты за выбранный месяц.
           Пока счетов за месяц нет, статусы не показываем — об этом уже сказано в «Платежах». */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Участники</Text>
+        <Text style={styles.sectionTitle}>{t("Участники")}</Text>
         <Card style={styles.membersCard}>
           {group.members.map((member, index) => {
             const payment = payments.find((p) => p.user_id === member.user_id);
             const isMe = member.user_id === user?.id;
-            const canMark = payment?.status === "pending" && (isOwner || isMe);
             const canRemove = isOwner && !member.is_owner;
             return (
               <MemberRow
@@ -472,7 +532,7 @@ export default function GroupScreen() {
                 isMe={isMe}
                 showStatus={hasInvoices}
                 first={index === 0}
-                onMarkPaid={canMark ? () => markPaid(payment) : null}
+                actions={paymentActions(payment, isMe)}
                 onRemove={canRemove ? () => removeMember(member) : null}
               />
             );
@@ -482,7 +542,7 @@ export default function GroupScreen() {
               Владелец может отметить оплату: деньги могли прийти и после выхода. */}
           {formerPayments.length > 0 ? (
             <View style={styles.formerHeader}>
-              <Text style={styles.formerTitle}>Больше не в группе</Text>
+              <Text style={styles.formerTitle}>{t("Больше не в группе")}</Text>
             </View>
           ) : null}
           {formerPayments.map((p, index) => (
@@ -494,7 +554,7 @@ export default function GroupScreen() {
               showStatus
               first={index === 0}
               former
-              onMarkPaid={isOwner && p.status === "pending" ? () => markPaid(p) : null}
+              actions={paymentActions(p, p.user_id === user?.id)}
             />
           ))}
         </Card>
@@ -504,45 +564,44 @@ export default function GroupScreen() {
       {isOwner ? (
         <View style={styles.actions}>
           <Button
-            title="Добавить участника"
+            title={t("Добавить участника")}
             icon="person-add"
             disabled={isFull}
             onPress={() => router.push(`/group/${groupId}/invite`)}
           />
           {/* Лимит можно поднять до 10 — дальше подсказка про «Изменить группу» не поможет.
-              NBSP не даёт ссылке разорваться на две строки и оторваться от «в». */}
+              */}
           {isFull && group.max_members < MAX_MEMBERS ? (
             <Text style={styles.hint}>
-              Группа заполнена — увеличьте лимит в{NBSP}
+              {t("Группа заполнена — увеличьте лимит:")}{" "}
               <Text style={styles.hintLink} onPress={openEdit}>
-                «Изменить{NBSP}группу»
+                {t("Изменить группу")}
               </Text>
             </Text>
           ) : null}
           {isFull && group.max_members >= MAX_MEMBERS ? (
             <Text style={styles.hint}>
-              Группа заполнена: {MAX_MEMBERS} участников — это максимум
+              {t("Группа заполнена: {count} участников — это максимум", { count: MAX_MEMBERS })}
             </Text>
           ) : null}
           <Button
-            title="Изменить группу"
+            title={t("Изменить группу")}
             icon="create-outline"
             variant="secondary"
             onPress={openEdit}
           />
-          <Button title="Удалить группу" icon="trash-outline" variant="danger" onPress={deleteGroup} />
+          <Button title={t("Удалить группу")} icon="trash-outline" variant="danger" onPress={deleteGroup} />
         </View>
       ) : null}
       {!isOwner && me ? (
-        <Button title="Выйти из группы" icon="exit-outline" variant="danger" onPress={leaveGroup} />
+        <Button title={t("Выйти из группы")} icon="exit-outline" variant="danger" onPress={leaveGroup} />
       ) : null}
 
       {/* 6. Как устроены переводы */}
       <View style={styles.note}>
         <Ionicons name="information-circle-outline" size={18} color={colors.textMuted} />
         <Text style={styles.noteText}>
-          Деньги переводятся владельцу напрямую — например, через Kaspi. SubShare считает доли и
-          показывает, чья доля уже оплачена.
+          {t("Деньги переводятся владельцу напрямую — например, через Kaspi. SubShare считает доли и показывает, чья доля уже оплачена.")}
         </Text>
       </View>
     </Screen>
@@ -565,7 +624,7 @@ function todayISO() {
 
 // «2026-11» → «ноябрь» (без года — для коротких подписей на кнопках)
 function monthOnly(period) {
-  return periodLabel(period).split(" ")[0].toLowerCase();
+  return monthName(period);
 }
 
 // Назад к предыдущему экрану. Если экран открыли по прямой ссылке в браузере,
@@ -581,9 +640,9 @@ function NotFound() {
     <Screen contentStyle={styles.notFound}>
       <EmptyState
         icon="search-outline"
-        title="Группа не найдена"
-        text="Возможно, её удалили. Вернитесь к списку подписок."
-        action={<Button title="Назад" icon="arrow-back" small onPress={goBack} />}
+        title={t("Группа не найдена")}
+        text={t("Возможно, её удалили. Вернитесь к списку подписок.")}
+        action={<Button title={t("Назад")} icon="arrow-back" small onPress={goBack} />}
       />
     </Screen>
   );
@@ -626,24 +685,24 @@ function ShareCard({ group, share, isOwner, owner, ownerPhone }) {
   if (isOwner) {
     return (
       <GradientCard>
-        <Text style={styles.shareLabel}>Вы платите сервису</Text>
+        <Text style={styles.shareLabel}>{t("Вы платите сервису")}</Text>
         <Text style={styles.shareAmount}>
           {formatMoney(group.total_price)}
-          <Text style={styles.sharePer}>{PER_MONTH}</Text>
+          <Text style={styles.sharePer}>{perMonth()}</Text>
         </Text>
         <View style={styles.shareBox}>
           {group.members_count > 1 ? (
             <>
               <ShareRow
-                label="Участники возвращают вам"
+                label={t("Участники возвращают вам")}
                 value={formatMoney(group.total_price - share)}
                 mint
               />
-              <ShareRow label="Ваша доля" value={formatMoney(share)} border />
+              <ShareRow label={t("Ваша доля")} value={formatMoney(share)} border />
             </>
           ) : (
             <Text style={styles.shareBoxText}>
-              Пока вы платите всё сами. Добавьте участников — и цена разделится поровну.
+              {t("Пока вы платите всё сами. Добавьте участников — и цена разделится поровну.")}
             </Text>
           )}
         </View>
@@ -654,26 +713,26 @@ function ShareCard({ group, share, isOwner, owner, ownerPhone }) {
   const people = plural(group.members_count, "человека", "человека", "человек");
   return (
     <GradientCard>
-      <Text style={styles.shareLabel}>Ваша доля</Text>
+      <Text style={styles.shareLabel}>{t("Ваша доля")}</Text>
       <Text style={styles.shareAmount}>
         {formatMoney(share)}
-        <Text style={styles.sharePer}>{PER_MONTH}</Text>
+        <Text style={styles.sharePer}>{perMonth()}</Text>
       </Text>
       <View style={styles.savePill}>
         <Ionicons name="sparkles" size={14} color={colors.midnight} />
         <Text style={styles.savePillText}>
-          Экономия {formatMoney(group.total_price - share)}
-          {PER_MONTH}
+          {t("Экономия {amount}", { amount: formatMoney(group.total_price - share) })}
+          {perMonth()}
         </Text>
       </View>
       <View style={styles.shareBox}>
         <ShareRow
-          label={`Подписка на ${group.members_count} ${people}`}
+          label={t("Подписка на {members_count} {people}", { members_count: group.members_count, people })}
           value={formatMoney(group.total_price)}
         />
         {/* Номер владельца приходит вместе со счетами, поэтому он есть не всегда */}
         <View style={[styles.shareRow, styles.shareRowBorder]}>
-          <Text style={styles.shareRowLabel}>Кому переводить</Text>
+          <Text style={styles.shareRowLabel}>{t("Кому переводить")}</Text>
           <View style={styles.contact}>
             <Text style={styles.contactName}>{owner?.name}</Text>
             {ownerPhone ? <Text style={styles.contactPhone}>{formatPhone(ownerPhone)}</Text> : null}
@@ -711,12 +770,12 @@ function ShareRow({ label, value, mint, border }) {
 // ещё ниже — «Отметить оплату». Имени отдана вся ширина: длинное («Александра
 // Константиновна») переносится на вторую строку, а не обрезается до «Александр…».
 // former — человек уже вышел из группы (его счёт остался в истории): аватар и имя бледнее.
-function MemberRow({ member, payment, isMe, showStatus, first, former, onMarkPaid, onRemove }) {
+function MemberRow({ member, payment, isMe, showStatus, first, former, actions = [], onRemove }) {
   // Если счёт за месяц есть — показываем его сумму: она запомнена при выставлении счёта
   // и может отличаться от текущей доли (цена или состав группы могли измениться)
-  let sub = `Доля ${formatMoney(member.share)}`;
-  if (member.is_owner) sub = "Платит сервису";
-  else if (payment) sub = `Счёт ${formatMoney(payment.amount)}`;
+  let sub = t("Доля {amount}", { amount: formatMoney(member.share) });
+  if (member.is_owner) sub = t("Платит сервису");
+  else if (payment) sub = t("Счёт {amount}", { amount: formatMoney(payment.amount) });
 
   let badge = null;
   if (member.is_owner) {
@@ -725,7 +784,7 @@ function MemberRow({ member, payment, isMe, showStatus, first, former, onMarkPai
     badge = (
       <StatusBadge
         state={paymentState(payment)}
-        label={payment ? undefined : "Нет счёта"}
+        label={payment ? undefined : t("Нет счёта")}
         style={styles.badge}
       />
     );
@@ -741,12 +800,12 @@ function MemberRow({ member, payment, isMe, showStatus, first, former, onMarkPai
           <View style={styles.memberTop}>
             <Text style={[styles.memberName, former && styles.formerName]} numberOfLines={2}>
               {member.name}
-              {isMe ? <Text style={styles.you}> (вы)</Text> : null}
+              {isMe ? <Text style={styles.you}> {t("(вы)")}</Text> : null}
             </Text>
             {onRemove ? (
               <IconButton
                 icon="person-remove-outline"
-                label="Удалить из группы"
+                label={t("Удалить из группы")}
                 subtle
                 onPress={onRemove}
               />
@@ -759,15 +818,18 @@ function MemberRow({ member, payment, isMe, showStatus, first, former, onMarkPai
         </View>
       </View>
 
-      {onMarkPaid ? (
+      {actions.length ? (
         <View style={styles.memberActions}>
-          <Button
-            title="Отметить оплату"
-            icon="checkmark-done"
-            variant="secondary"
-            small
-            onPress={onMarkPaid}
-          />
+          {actions.map((action) => (
+            <Button
+              key={action.title}
+              title={action.title}
+              icon={action.icon}
+              variant={action.variant || "secondary"}
+              small
+              onPress={action.onPress}
+            />
+          ))}
         </View>
       ) : null}
     </View>
@@ -979,7 +1041,7 @@ const styles = StyleSheet.create({
   },
   memberSub: { fontFamily: fonts.regular, fontSize: 13.5, color: colors.textMuted },
   badge: { alignSelf: "center" },
-  memberActions: { flexDirection: "row", marginLeft: 54 }, // 54 = аватар 42 + отступ 12
+  memberActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginLeft: 54 }, // 54 = аватар 42 + отступ 12
   faded: { opacity: 0.5 },
   formerName: { color: colors.textMuted },
   formerHeader: { paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.border },

@@ -4,6 +4,7 @@ import { Tabs } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors, fonts } from "../../lib/theme";
+import { t } from "../../lib/i18n";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -27,21 +28,21 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Подписки",
+          title: t("Подписки"),
           tabBarIcon: ({ color, size }) => <Ionicons name="albums" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="payments"
         options={{
-          title: "Платежи",
+          title: t("Платежи"),
           tabBarIcon: ({ color, size }) => <Ionicons name="wallet" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Профиль",
+          title: t("Профиль"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-circle" color={color} size={size} />
           ),

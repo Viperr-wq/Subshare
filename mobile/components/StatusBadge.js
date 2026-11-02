@@ -1,21 +1,26 @@
 // Цветная плашка статуса: «Оплачено», «Ждём оплату», «Просрочено», «Владелец».
+// Подписи переводятся при показе (t), поэтому здесь они по-русски.
 import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
 
+import { t } from "../lib/i18n";
 import { colors, fonts, radius } from "../lib/theme";
 
 const STATES = {
   paid: { label: "Оплачено", icon: "checkmark-circle", background: "#DDF8F2", text: "#0E8A72" },
+  sent: { label: "Ждёт подтверждения", icon: "hourglass", background: "#E3EEFF", text: "#2A6FD0" },
   pending: { label: "Ждём оплату", icon: "time", background: "#FFF3D6", text: "#9A6A00" },
   overdue: { label: "Просрочено", icon: "alert-circle", background: "#FFE4E4", text: "#D63C3C" },
   owner: { label: "Владелец", icon: "star", background: "#E1E7FB", text: colors.sapphire },
   none: { label: "Счёт не выставлен", icon: "remove-circle-outline", background: "#EEF0F6", text: colors.textMuted },
 };
 
-// Статус платежа с сервера → ключ для плашки: "paid" | "pending" | "overdue"
+// Статус платежа с сервера → ключ для плашки: "paid" | "sent" | "pending" | "overdue".
+// sent — участник перевёл деньги, владелец ещё не подтвердил
 export function paymentState(payment) {
   if (!payment) return "none";
   if (payment.status === "paid") return "paid";
+  if (payment.status === "sent") return "sent";
   return payment.is_overdue ? "overdue" : "pending";
 }
 
@@ -25,7 +30,7 @@ export function StatusBadge({ state, label, style }) {
   return (
     <View style={[styles.badge, { backgroundColor: s.background }, style]}>
       <Ionicons name={s.icon} size={14} color={s.text} />
-      <Text style={[styles.text, { color: s.text }]}>{label || s.label}</Text>
+      <Text style={[styles.text, { color: s.text }]}>{label || t(s.label)}</Text>
     </View>
   );
 }

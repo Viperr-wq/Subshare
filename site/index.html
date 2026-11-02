@@ -1,0 +1,300 @@
+<!doctype html>
+<!--
+  Сайт SubShare: описание, скачивание приложения и создание аккаунта.
+  Тексты здесь — по-русски. Элемент с атрибутом data-t переводится: его русский текст —
+  ключ в translations.js. Поменяли русский текст — поменяйте ключ и переводы там же.
+-->
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-t>SubShare — делите подписки с друзьями</title>
+    <meta
+      name="description"
+      content="SubShare считает доли в семейных и групповых подписках, выставляет счета и напоминает об оплате в Telegram. Бесплатно."
+    />
+    <meta name="theme-color" content="#101727" />
+    <link rel="icon" href="favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&family=Unbounded:wght@600;700&display=swap"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body>
+    <header class="header">
+      <div class="container header-row">
+        <a class="brand" href="#top"><span class="logo" aria-hidden="true">S</span>SubShare</a>
+        <nav class="nav">
+          <a href="#how" data-t>Как это работает</a>
+          <a href="#download" data-t>Скачать</a>
+          <a href="#faq" data-t>Вопросы</a>
+        </nav>
+        <div class="langs" role="group" aria-label="Язык / Тіл / Language">
+          <button type="button" data-lang="ru">Рус</button>
+          <button type="button" data-lang="kk">Қаз</button>
+          <button type="button" data-lang="en">Eng</button>
+        </div>
+        <!-- data-login: без входа открывает окно входа, после входа — веб-версию приложения -->
+        <button type="button" class="btn btn-small" data-login>
+          <span class="when-out" data-t>Войти</span>
+          <span class="when-in" data-t>Открыть SubShare</span>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero" id="top">
+        <div class="container hero-grid">
+          <div>
+            <p class="badge" data-t>Бесплатно · Android и браузер · Рус, Қаз, Eng</p>
+            <h1 data-t>Делите подписки, а не нервы</h1>
+            <p class="lead" data-t>
+              SubShare считает доли в семейных тарифах Netflix, Spotify, YouTube и других подписок,
+              каждый месяц выставляет счета и сам напоминает друзьям об оплате в Telegram.
+            </p>
+            <div class="actions">
+              <button type="button" class="btn btn-primary" data-login>
+                <span class="when-out" data-t>Создать аккаунт</span>
+                <span class="when-in" data-t>Открыть SubShare</span>
+              </button>
+              <a class="btn btn-outline" href="#download" data-t>Скачать приложение</a>
+            </div>
+            <p class="note" data-t>Регистрация за минуту — через Telegram, без паролей и SMS</p>
+          </div>
+
+          <!-- Картинка «телефон с приложением», нарисованная на HTML и CSS -->
+          <div class="phone" aria-hidden="true">
+            <div class="screen">
+              <div class="card">
+                <div class="card-head">
+                  <span class="service">N</span>
+                  <div>
+                    <b data-t>Netflix вскладчину</b>
+                    <small data-t>6 000 ₸ в месяц · 4 человека</small>
+                  </div>
+                </div>
+                <div class="share">
+                  <small data-t>Доля каждого</small>
+                  <b>1 500 ₸</b>
+                </div>
+              </div>
+              <ul class="members">
+                <li>
+                  <span class="avatar" style="background: #9d70fc">А</span>
+                  <span data-t>Айгерим</span>
+                  <em class="tag tag-paid" data-t>Оплачено</em>
+                </li>
+                <li>
+                  <span class="avatar" style="background: #499dfc">Д</span>
+                  <span data-t>Данияр</span>
+                  <em class="tag tag-sent" data-t>Ждёт подтверждения</em>
+                </li>
+                <li>
+                  <span class="avatar" style="background: #35dab9">М</span>
+                  <span data-t>Мадина</span>
+                  <em class="tag tag-wait" data-t>Ждём оплату</em>
+                </li>
+              </ul>
+              <div class="push">
+                <b>SubShare</b>
+                <span data-t>Мадина, напоминаем: 1 500 ₸ за Netflix до 5 числа</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="how">
+        <div class="container">
+          <h2 data-t>Как это работает</h2>
+          <ol class="steps">
+            <li>
+              <span class="step-num">1</span>
+              <h3 data-t>Создайте группу</h3>
+              <p data-t>Выберите подписку, укажите цену и день оплаты — SubShare сразу посчитает долю каждого.</p>
+            </li>
+            <li>
+              <span class="step-num">2</span>
+              <h3 data-t>Добавьте друзей</h3>
+              <p data-t>По номеру телефона. Когда друг войдёт в SubShare с этим номером, группа уже будет у него.</p>
+            </li>
+            <li>
+              <span class="step-num">3</span>
+              <h3 data-t>Получайте доли</h3>
+              <p data-t>
+                Друзья переводят долю вам напрямую — через Kaspi или любой банк — и отмечают перевод,
+                а вы подтверждаете. Счета и напоминания SubShare присылает сам.
+              </p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section section-alt">
+        <div class="container">
+          <h2 data-t>Почему SubShare</h2>
+          <div class="features">
+            <article class="feature">
+              <span class="icon" style="background: rgba(53, 218, 185, 0.18); color: #0e8a72">
+                <svg viewBox="0 0 24 24"><path d="M11 3.05A9 9 0 1 0 20.95 13H11z" /><path d="M13 1.05V11h9.95A10 10 0 0 0 13 1.05z" /></svg>
+              </span>
+              <h3 data-t>Честный расчёт</h3>
+              <p data-t>Цена делится поровну в целых тенге, а если не делится ровно — лишние тенге раздаются по одному.</p>
+            </article>
+            <article class="feature">
+              <span class="icon" style="background: rgba(73, 157, 252, 0.18); color: #2a6fd0">
+                <svg viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </span>
+              <h3 data-t>Видно, кто оплатил</h3>
+              <p data-t>У каждого участника — свой статус оплаты. Не нужно листать переписку и выписки.</p>
+            </article>
+            <article class="feature">
+              <span class="icon" style="background: rgba(157, 112, 252, 0.18); color: #7a4fe0">
+                <svg viewBox="0 0 24 24"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-6v-5a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1z" /></svg>
+              </span>
+              <h3 data-t>Напоминания в Telegram</h3>
+              <p data-t>Бот напомнит о сроке оплаты — больше не нужно неловко писать друзьям самому.</p>
+            </article>
+            <article class="feature">
+              <span class="icon icon-text" style="background: rgba(255, 200, 87, 0.25); color: #9a6a00">₸</span>
+              <h3 data-t>Без комиссий</h3>
+              <p data-t>Деньги не проходят через SubShare: друзья переводят их вам напрямую. Данных карт мы не получаем.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="download">
+        <div class="container">
+          <h2 data-t>Скачайте SubShare</h2>
+          <div class="downloads">
+            <div class="download">
+              <h3 data-t>Android</h3>
+              <p data-t>Приложения пока нет в Google Play — скачайте установочный файл (APK) здесь.</p>
+              <a class="btn btn-primary" data-apk href="#" data-t>Скачать APK</a>
+              <ol class="mini-steps">
+                <li data-t>Откройте скачанный файл SubShare.apk</li>
+                <li data-t>Если Android спросит — разрешите установку из браузера</li>
+                <li data-t>Войдите через Telegram</li>
+              </ol>
+            </div>
+            <div class="download">
+              <h3 data-t>iPhone и компьютер</h3>
+              <p data-t>
+                Веб-версия работает прямо в браузере — всё то же, что в приложении. На iPhone её
+                можно добавить на экран «Домой»: Safari → «Поделиться» → «На экран „Домой“».
+              </p>
+              <a class="btn btn-light" data-app="" href="/app/" data-t>Открыть веб-версию</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="faq">
+        <div class="container narrow">
+          <h2 data-t>Вопросы и ответы</h2>
+          <details>
+            <summary data-t>Это бесплатно?</summary>
+            <p data-t>Да. SubShare бесплатный: без рекламы, подписок и комиссий.</p>
+          </details>
+          <details>
+            <summary data-t>Деньги проходят через SubShare?</summary>
+            <p data-t>
+              Нет. Участники переводят свою долю владельцу группы напрямую — через Kaspi или любой банк
+              по номеру телефона. В SubShare перевод только отмечается.
+            </p>
+          </details>
+          <details>
+            <summary data-t>Почему вход через Telegram?</summary>
+            <p data-t>
+              Telegram сам подтверждает ваш номер, поэтому не нужны ни пароль, ни SMS. Через него же бот
+              присылает напоминания об оплате.
+            </p>
+          </details>
+          <details>
+            <summary data-t>Друзьям тоже нужно регистрироваться?</summary>
+            <p data-t>
+              Добавить друга в группу можно по номеру сразу. Чтобы видеть свои счета и отмечать переводы,
+              он входит в SubShare с этим номером — и группа уже будет у него.
+            </p>
+          </details>
+          <details>
+            <summary data-t>Вы продаёте аккаунты Netflix или Spotify?</summary>
+            <p data-t>
+              Нет. SubShare не продаёт и не перепродаёт аккаунты сервисов — только помогает вести учёт
+              оплаты внутри вашей группы.
+            </p>
+          </details>
+          <details>
+            <summary data-t>Как удалить аккаунт?</summary>
+            <p data-t>В приложении: Профиль → «Удалить аккаунт». Данные удаляются сразу и навсегда.</p>
+          </details>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-row">
+        <a class="brand" href="#top"><span class="logo" aria-hidden="true">S</span>SubShare</a>
+        <p data-t>Учебный проект команды SubShare · Казахстан, 2026</p>
+        <nav class="footer-links">
+          <a data-app="privacy" href="/app/privacy" data-t>Политика конфиденциальности</a>
+          <a data-app="terms" href="/app/terms" data-t>Условия использования</a>
+          <a href="https://github.com/Viperr-wq/Subshare/issues" target="_blank" rel="noopener" data-t>Поддержка</a>
+        </nav>
+      </div>
+    </footer>
+
+    <!-- Окно входа. Видна одна часть data-step — по шагу входа (см. showStep в script.js) -->
+    <dialog class="dialog" id="login">
+      <button type="button" class="close" data-close aria-label="Закрыть">✕</button>
+      <span class="logo logo-big" aria-hidden="true">S</span>
+
+      <div data-step="loading">
+        <h2 data-t>Аккаунт SubShare</h2>
+        <p class="wait"><span class="spinner"></span><span data-t>Готовим ссылку для входа…</span></p>
+      </div>
+
+      <div data-step="waiting">
+        <h2 data-t>Вход через Telegram</h2>
+        <p data-t>Аккаунт создастся сам: Telegram подтвердит ваш номер, пароль не нужен.</p>
+        <a class="btn btn-primary btn-wide" id="login-link" href="#" target="_blank" rel="noopener" data-t>Открыть Telegram</a>
+        <figure class="qr" id="login-qr" hidden>
+          <div id="qr-image"></div>
+          <figcaption data-t>Или наведите камеру телефона на код</figcaption>
+        </figure>
+        <p class="hint" data-t>В боте SubShare нажмите «Поделиться номером», а потом вернитесь сюда — вход произойдёт сам.</p>
+        <p class="wait"><span class="spinner"></span><span data-t>Ждём подтверждения…</span></p>
+        <p class="consent">
+          <span data-t>Продолжая, вы принимаете документы SubShare:</span>
+          <a data-app="terms" href="/app/terms" target="_blank" data-t>Условия использования</a> ·
+          <a data-app="privacy" href="/app/privacy" target="_blank" data-t>Политика конфиденциальности</a>
+        </p>
+      </div>
+
+      <div data-step="done">
+        <span class="done-icon" aria-hidden="true">✓</span>
+        <h2><span data-t>Готово!</span> <span id="login-name"></span></h2>
+        <p data-t>Аккаунт SubShare готов. Пользуйтесь им в браузере или в приложении для Android.</p>
+        <a class="btn btn-primary btn-wide" data-app="" href="/app/" data-t>Открыть веб-версию</a>
+        <a class="btn btn-light btn-wide" data-apk href="#" data-t>Скачать для Android</a>
+      </div>
+
+      <div data-step="error">
+        <h2 data-t>Не получилось</h2>
+        <p id="login-error"></p>
+        <button type="button" class="btn btn-primary btn-wide" id="login-retry" data-t>Попробовать ещё раз</button>
+        <!-- Только на своём компьютере: там Telegram-бота нет, входим демо-пользователем из seed.py -->
+        <button type="button" class="btn btn-light btn-wide" id="login-demo" hidden>Демо-вход (python seed.py)</button>
+      </div>
+    </dialog>
+
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" defer></script>
+    <script src="translations.js" defer></script>
+    <script src="script.js" defer></script>
+  </body>
+</html>

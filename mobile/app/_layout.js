@@ -1,21 +1,27 @@
-// Главный «каркас» приложения: шрифты, вход пользователя, окна-подтверждения
+// Главный «каркас» приложения: шрифты, язык, вход пользователя, окна-подтверждения
 // и список экранов. Каждый файл в папке app/ — это отдельный экран (expo-router):
-//   app/welcome.js           → вход и регистрация
+//   app/welcome.js           → вход через Telegram
 //   app/(tabs)/...           → вкладки «Подписки», «Платежи», «Профиль»
 //   app/group/new.js         → создание группы
 //   app/group/[id]/index.js  → экран группы (id — номер группы)
+//   app/privacy.js, terms.js → политика конфиденциальности и условия (видны всем)
 import { Onest_400Regular, Onest_500Medium, Onest_600SemiBold, Onest_700Bold } from "@expo-google-fonts/onest";
 import { Unbounded_600SemiBold, Unbounded_700Bold } from "@expo-google-fonts/unbounded";
+import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
+import { Linking, Platform, Pressable } from "react-native";
 
 import { WebFrame } from "../components/WebFrame";
+import { api } from "../lib/api";
 import { AuthProvider, useAuth } from "../lib/auth";
-import { DialogProvider } from "../lib/dialogs";
+import { DialogProvider, useDialogs } from "../lib/dialogs";
+import { LanguageProvider, t, useLanguage } from "../lib/i18n";
 import { colors, fonts } from "../lib/theme";
+import { APK_URL, checkForUpdate } from "../lib/updates";
 
 // Держим заставку, пока не загрузились шрифты и сохранённый пользователь
 SplashScreen.preventAutoHideAsync();
@@ -32,21 +38,47 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <WebFrame>
-        <DialogProvider>
-          <RootNavigator fontsLoaded={fontsLoaded} />
-        </DialogProvider>
-      </WebFrame>
+      {/* Сменили язык — сообщаем серверу: на нём бот пишет напоминания.
+          Если никто не вошёл, сервер просто ответит «войдите» — это не страшно */}
+      <LanguageProvider onChange={(language) => api.updateMe({ language }).catch(() => {})}>
+        <WebFrame>
+          <DialogProvider>
+            <RootNavigator fontsLoaded={fontsLoaded} />
+          </DialogProvider>
+        </WebFrame>
+      </LanguageProvider>
     </AuthProvider>
   );
 }
 
 function RootNavigator({ fontsLoaded }) {
   const { user, ready } = useAuth();
+  const { language } = useLanguage();
+  const { confirm } = useDialogs();
   const loaded = fontsLoaded && ready;
 
   useEffect(() => {
     if (loaded) SplashScreen.hideAsync();
+  }, [loaded]);
+
+  // После входа: язык в аккаунте должен совпадать с языком приложения
+  useEffect(() => {
+    if (user && user.language !== language) api.updateMe({ language }).catch(() => {});
+  }, [user?.id]);
+
+  // Вышла новая версия APK — предлагаем скачать (только в Android-приложении)
+  useEffect(() => {
+    if (!loaded) return;
+    checkForUpdate().then(async (version) => {
+      if (!version) return;
+      const ok = await confirm({
+        title: t("Вышла новая версия {version}", { version }),
+        message: t("Скачайте и установите её поверх старой — данные сохранятся."),
+        confirmText: t("Скачать"),
+        cancelText: t("Позже"),
+      });
+      if (ok) Linking.openURL(APK_URL);
+    });
   }, [loaded]);
 
   if (!loaded) return null;
@@ -62,22 +94,42 @@ function RootNavigator({ fontsLoaded }) {
           headerTitleStyle: { fontFamily: fonts.headingSemi, fontSize: 17 },
           headerBackButtonDisplayMode: "minimal",
           contentStyle: { backgroundColor: colors.cloud },
+          // В браузере после обновления страницы истории переходов нет, и стрелки «назад»
+          // не было бы — рисуем свою: она вернёт назад или на главный экран
+          headerLeft: Platform.OS === "web" ? WebBackButton : undefined,
         }}
       >
         {/* Эти экраны видны только после входа */}
         <Stack.Protected guard={!!user}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="group/new" options={{ title: "Новая группа" }} />
-          <Stack.Screen name="group/[id]/index" options={{ title: "Группа" }} />
-          <Stack.Screen name="group/[id]/invite" options={{ title: "Добавить участника" }} />
-          <Stack.Screen name="group/[id]/edit" options={{ title: "Изменить группу" }} />
+          <Stack.Screen name="group/new" options={{ title: t("Новая группа") }} />
+          <Stack.Screen name="group/[id]/index" options={{ title: t("Группа") }} />
+          <Stack.Screen name="group/[id]/invite" options={{ title: t("Добавить участника") }} />
+          <Stack.Screen name="group/[id]/edit" options={{ title: t("Изменить группу") }} />
         </Stack.Protected>
 
         {/* Экран входа — только для тех, кто ещё не вошёл */}
         <Stack.Protected guard={!user}>
           <Stack.Screen name="welcome" options={{ headerShown: false }} />
         </Stack.Protected>
+
+        {/* Документы видны всем: ссылки на них есть и на экране входа */}
+        <Stack.Screen name="privacy" options={{ title: t("Конфиденциальность") }} />
+        <Stack.Screen name="terms" options={{ title: t("Условия использования") }} />
       </Stack>
     </>
+  );
+}
+
+function WebBackButton({ tintColor }) {
+  return (
+    <Pressable
+      onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+      accessibilityRole="button"
+      accessibilityLabel={t("Назад")}
+      style={{ padding: 8, marginLeft: 4 }}
+    >
+      <Ionicons name="arrow-back" size={24} color={tintColor} />
+    </Pressable>
   );
 }

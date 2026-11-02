@@ -12,11 +12,11 @@ import { Screen } from "../../components/Screen";
 import { ServiceIcon } from "../../components/ServiceIcon";
 import { Stepper } from "../../components/Stepper";
 import { api } from "../../lib/api";
-import { useAuth } from "../../lib/auth";
 import { useDialogs } from "../../lib/dialogs";
 import { formatMoney, splitPrice } from "../../lib/format";
 import { OTHER_SERVICE, SERVICES } from "../../lib/services";
 import { colors, fonts, radius } from "../../lib/theme";
+import { t } from "../../lib/i18n";
 
 const ALL_SERVICES = [...SERVICES, OTHER_SERVICE];
 const MAX_PRICE = 1000000;
@@ -25,7 +25,6 @@ const LAVENDER_SOFT = "rgba(195, 206, 250, 0.3)";
 const NBSP = String.fromCharCode(160); // неразрывный пробел: в этом месте строка не переносится
 
 export default function NewGroupScreen() {
-  const { user } = useAuth();
   const { toast } = useDialogs();
   const navigation = useNavigation();
 
@@ -42,7 +41,7 @@ export default function NewGroupScreen() {
   const isOther = choice === OTHER_SERVICE.name;
   const serviceName = isOther ? customService.trim() : choice || "";
   // Пока название не меняли вручную, оно составляется само: «Netflix вскладчину»
-  const name = customName ?? (serviceName ? `${serviceName} вскладчину` : "");
+  const name = customName ?? (serviceName ? t("{serviceName} вскладчину", { serviceName }) : "");
   const priceNumber = Number(price);
 
   const errors = validate({ choice, serviceName, name, price: priceNumber });
@@ -60,15 +59,15 @@ export default function NewGroupScreen() {
     setServerError(null);
     if (hasErrors) return;
     try {
+      // Владельцем станете вы: сервер узнаёт, кто создаёт группу, по ключу входа
       const group = await api.createGroup({
         name: name.trim(),
         service_name: serviceName,
         total_price: priceNumber,
         billing_day: billingDay,
         max_members: maxMembers,
-        owner_id: user.id,
       });
-      toast("Группа создана");
+      toast(t("Группа создана"));
       // Пока ждали сервер, человек мог уйти с этого экрана. Тогда никуда не переходим:
       // replace заменил бы уже другой экран (например, вкладки)
       if (navigation.isFocused()) router.replace(`/group/${group.id}`);
@@ -79,7 +78,7 @@ export default function NewGroupScreen() {
 
   return (
     <Screen>
-      <Text style={styles.sectionTitle}>Какую подписку делим?</Text>
+      <Text style={styles.sectionTitle}>{t("Какую подписку делим?")}</Text>
       <View style={styles.grid}>
         {ALL_SERVICES.map((service) => (
           <ServiceChip
@@ -94,57 +93,57 @@ export default function NewGroupScreen() {
 
       {isOther ? (
         <Field
-          label="Название сервиса"
+          label={t("Название сервиса")}
           value={customService}
           onChangeText={setCustomService}
-          placeholder="Например, Кинопоиск"
+          placeholder={t("Например, Кинопоиск")}
           maxLength={100}
           error={showErrors ? errors.service : null}
         />
       ) : null}
 
-      <Text style={[styles.sectionTitle, styles.secondSection]}>Детали группы</Text>
+      <Text style={[styles.sectionTitle, styles.secondSection]}>{t("Детали группы")}</Text>
       <Field
-        label="Название группы"
+        label={t("Название группы")}
         value={name}
         onChangeText={setCustomName}
-        placeholder="Например, Netflix вскладчину"
+        placeholder={t("Например, Netflix вскладчину")}
         maxLength={100}
         error={showErrors ? errors.name : null}
       />
       <Field
-        label="Цена подписки в месяц, ₸"
+        label={t("Цена подписки в месяц, ₸")}
         value={groupDigits(price)}
         onChangeText={(text) => setPrice(cleanDigits(text))}
         keyboardType="number-pad"
-        placeholder="Например, 6 000"
+        placeholder={t("Например, 6 000")}
         error={showErrors ? errors.price : null}
       />
       <Stepper
-        label="Оплата до"
+        label={t("Оплата до")}
         value={billingDay}
         onChange={setBillingDay}
         min={1}
         max={28}
-        suffix="числа"
-        hint="Участники переводят долю до этого дня"
+        suffix={t("числа")}
+        hint={t("Участники переводят долю до этого дня")}
       />
       <Stepper
-        label="Участников по тарифу"
+        label={t("Участников по тарифу")}
         value={maxMembers}
         onChange={setMaxMembers}
         min={2}
         max={10}
-        suffix="чел."
+        suffix={t("чел.")}
       />
 
       {/* Подсказку считаем только по правильной цене: не пустой и не больше лимита */}
       {!errors.price ? <SavingsCard price={priceNumber} members={maxMembers} /> : null}
 
-      <Button title="Создать группу" icon="checkmark-circle" onPress={handleCreate} />
-      {showErrors && hasErrors ? <ErrorNote text="Проверьте поля выше" /> : null}
+      <Button title={t("Создать группу")} icon="checkmark-circle" onPress={handleCreate} />
+      {showErrors && hasErrors ? <ErrorNote text={t("Проверьте поля выше")} /> : null}
       {serverError ? <ErrorNote text={serverError} /> : null}
-      <Text style={styles.footnote}>Участников добавите на следующем шаге</Text>
+      <Text style={styles.footnote}>{t("Участников добавите на следующем шаге")}</Text>
     </Screen>
   );
 }
@@ -152,14 +151,14 @@ export default function NewGroupScreen() {
 // Проверяет форму и возвращает тексты ошибок по полям. Пустой объект — всё верно.
 function validate({ choice, serviceName, name, price }) {
   const errors = {};
-  if (!choice) errors.service = "Выберите подписку";
-  else if (!serviceName) errors.service = "Введите название сервиса";
+  if (!choice) errors.service = t("Выберите подписку");
+  else if (!serviceName) errors.service = t("Введите название сервиса");
 
-  if (!name.trim()) errors.name = "Введите название группы";
-  else if (name.trim().length > 100) errors.name = "Не длиннее 100 символов";
+  if (!name.trim()) errors.name = t("Введите название группы");
+  else if (name.trim().length > 100) errors.name = t("Не длиннее 100 символов");
 
-  if (!price) errors.price = "Укажите цену подписки";
-  else if (price > MAX_PRICE) errors.price = `Не больше ${formatMoney(MAX_PRICE)}`;
+  if (!price) errors.price = t("Укажите цену подписки");
+  else if (price > MAX_PRICE) errors.price = t("Не больше {amount}", { amount: formatMoney(MAX_PRICE) });
 
   return errors;
 }
@@ -188,7 +187,7 @@ function ServiceChip({ service, selected, onPress }) {
     >
       <ServiceIcon serviceName={service.name} size={28} />
       <Text style={[styles.chipText, selected && styles.chipTextSelected]} numberOfLines={2}>
-        {service.name}
+        {t(service.name)}
       </Text>
     </Pressable>
   );
@@ -197,7 +196,7 @@ function ServiceChip({ service, selected, onPress }) {
 // Подсказка: сколько заплатит каждый, если группа соберётся полностью
 function SavingsCard({ price, members }) {
   const share = Math.min(...splitPrice(price, members));
-  const saving = `${formatMoney(price - share)}${NBSP}в${NBSP}месяц`; // «в месяц» не оторвётся от суммы
+  const saving = t("{amount}{NBSP}в{NBSP}месяц", { amount: formatMoney(price - share), NBSP }); // «в месяц» не оторвётся от суммы
   return (
     <LinearGradient
       colors={[colors.sapphire, colors.violet]}
@@ -215,11 +214,15 @@ function SavingsCard({ price, members }) {
           />
         ))}
       </View>
-      <Text style={styles.savingsText}>Если вас будет {members}, каждый заплатит около</Text>
+      <Text style={styles.savingsText}>
+        {t("Если вас будет {count}, каждый заплатит около", { count: members })}
+      </Text>
       <Text style={styles.savingsAmount}>{formatMoney(share)}</Text>
       <View style={styles.savingsPill}>
         <Ionicons name="sparkles" size={15} color={colors.midnight} />
-        <Text style={styles.savingsPillText}>Экономия на человека — {saving}</Text>
+        <Text style={styles.savingsPillText}>
+          {t("Экономия на человека — {amount}", { amount: saving })}
+        </Text>
       </View>
     </LinearGradient>
   );

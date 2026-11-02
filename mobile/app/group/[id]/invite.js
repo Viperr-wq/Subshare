@@ -19,6 +19,7 @@ import { useDialogs } from "../../../lib/dialogs";
 import { formatMoney, initials, plural, splitPrice } from "../../../lib/format";
 import { colors, fonts, radius } from "../../../lib/theme";
 import { useLoad } from "../../../lib/useLoad";
+import { t } from "../../../lib/i18n";
 
 const MAX_MEMBERS = 10; // больше участников в одной группе сервер не разрешает
 // Лаванда из theme.js (#C3CEFA) с прозрачностью 30%: на светлом фоне экрана — нежно-голубой
@@ -43,19 +44,19 @@ export default function InviteScreen() {
   if (group.members_count >= group.max_members) {
     const isOwner = group.owner_id === user?.id;
     const canRaise = isOwner && group.max_members < MAX_MEMBERS;
-    let text = `В группе уже ${group.members_count} из ${group.max_members} участников.`;
-    if (canRaise) text += " Если тариф позволяет больше — увеличьте лимит.";
-    if (!isOwner) text += " Увеличить лимит может владелец группы.";
+    let text = t("В группе уже {members_count} из {max_members} участников.", { members_count: group.members_count, max_members: group.max_members });
+    if (canRaise) text += t(" Если тариф позволяет больше — увеличьте лимит.");
+    if (!isOwner) text += t(" Увеличить лимит может владелец группы.");
     return (
       <Screen contentStyle={styles.centered}>
         <EmptyState
           icon="people-outline"
-          title="Группа заполнена"
+          title={t("Группа заполнена")}
           text={text}
           action={
             canRaise ? (
               <Button
-                title="Изменить лимит"
+                title={t("Изменить лимит")}
                 icon="create-outline"
                 small
                 onPress={() => router.replace(`/group/${id}/edit`)}
@@ -69,19 +70,19 @@ export default function InviteScreen() {
 
   const cleanName = name.trim();
   const errors = {};
-  if (!cleanName) errors.name = "Введите имя";
+  if (!cleanName) errors.name = t("Введите имя");
   if (phone.length !== 10) {
-    errors.phone = phone ? "В номере должно быть 10 цифр после +7" : "Введите номер телефона";
+    errors.phone = phone ? t("В номере должно быть 10 цифр после +7") : t("Введите номер телефона");
   }
 
   const freePlaces = group.max_members - group.members_count;
   // «свободно 1 место» не разрывается при переносе строки
-  const freeText = `свободно${NBSP}${freePlaces}${NBSP}${plural(freePlaces, "место", "места", "мест")}`;
+  const freeText = t("свободно{NBSP}{freePlaces}{NBSP}{value}", { NBSP, freePlaces, value: plural(freePlaces, "место", "места", "мест") });
   // Доля последнего участника — самая маленькая (лишние тенге достаются первым)
   const shareNow = group.members[group.members.length - 1].share;
   const sharesAfter = splitPrice(group.total_price, group.members_count + 1);
   const shareAfter = sharesAfter[sharesAfter.length - 1];
-  const saving = `ещё${NBSP}${formatMoney(shareNow - shareAfter)}`; // «ещё» не оторвётся от суммы
+  const saving = t("ещё{NBSP}{amount}", { NBSP, amount: formatMoney(shareNow - shareAfter) }); // «ещё» не оторвётся от суммы
   const nowText = formatMoney(shareNow);
   const afterText = formatMoney(shareAfter);
   // Суммы до «9 999 ₸» (7 знаков) печатаем крупно, длинные — пропорционально мельче.
@@ -97,7 +98,7 @@ export default function InviteScreen() {
       // Новый участник — последний в списке. Если человек уже был в SubShare,
       // сервер оставит его прежнее имя — поэтому берём имя из ответа.
       const added = updated.members[updated.members.length - 1];
-      toast(`${added?.name || cleanName} теперь в группе`);
+      toast(t("{value} теперь в группе", { value: added?.name || cleanName }));
       // Пока ждали сервер, человек мог сам уйти с экрана — тогда «назад» закрыл бы уже другой экран
       if (navigation.isFocused()) {
         if (router.canGoBack()) router.back();
@@ -117,16 +118,17 @@ export default function InviteScreen() {
             {group.name}
           </Text>
           <Text style={styles.groupMeta}>
-            {group.members_count} из {group.max_members} участников · {freeText}
+            {t("{count} из {max} участников", { count: group.members_count, max: group.max_members })}{" "}
+            · {freeText}
           </Text>
         </View>
       </Card>
 
       <Field
-        label="Имя"
+        label={t("Имя")}
         value={name}
         onChangeText={setName}
-        placeholder="Например, Тимур"
+        placeholder={t("Например, Тимур")}
         autoCapitalize="words"
         maxLength={100}
         error={showErrors ? errors.name : null}
@@ -136,8 +138,7 @@ export default function InviteScreen() {
       <View style={styles.tip}>
         <Ionicons name="information-circle" size={20} color={colors.sapphire} />
         <Text style={styles.tipText}>
-          Если этого номера ещё нет в SubShare, по нему будет создан аккаунт — потом с этим
-          номером можно войти самостоятельно.
+          {t("Если этого номера ещё нет в SubShare, по нему будет создан аккаунт — потом с этим номером можно войти самостоятельно.")}
         </Text>
       </View>
 
@@ -165,14 +166,14 @@ export default function InviteScreen() {
 
         <View style={styles.shareRow}>
           <View style={styles.shareColumn}>
-            <Text style={styles.shareLabel}>Сейчас доля</Text>
+            <Text style={styles.shareLabel}>{t("Сейчас доля")}</Text>
             <Text style={[styles.shareNow, { fontSize: Math.round(18 * scale) }]}>{nowText}</Text>
           </View>
           <View style={styles.arrow}>
             <Ionicons name="arrow-forward" size={18} color={colors.white} />
           </View>
           <View style={[styles.shareColumn, styles.shareColumnRight]}>
-            <Text style={styles.shareLabel}>После добавления</Text>
+            <Text style={styles.shareLabel}>{t("После добавления")}</Text>
             <Text style={[styles.shareAfter, { fontSize: Math.round(22 * scale) }]}>{afterText}</Text>
           </View>
         </View>
@@ -180,12 +181,14 @@ export default function InviteScreen() {
         {shareNow > shareAfter ? (
           <View style={styles.savingsPill}>
             <Ionicons name="sparkles" size={14} color={colors.midnight} />
-            <Text style={styles.savingsPillText}>Экономия на человека — {saving}</Text>
+            <Text style={styles.savingsPillText}>
+              {t("Экономия на человека — {amount}", { amount: saving })}
+            </Text>
           </View>
         ) : null}
       </LinearGradient>
 
-      <Button title="Добавить в группу" icon="person-add" onPress={handleInvite} />
+      <Button title={t("Добавить в группу")} icon="person-add" onPress={handleInvite} />
       {serverError ? (
         <View style={styles.errorNote}>
           <Ionicons name="alert-circle" size={18} color={colors.overdue} />

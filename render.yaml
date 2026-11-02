@@ -9,36 +9,59 @@ services:
     plan: free # бесплатный тариф (без этой строки Render выберет платный)
     region: frankfurt # тот же город, что и база Neon
     buildCommand: pip install -r requirements.txt
-    # При каждом запуске: демо-данные (только если база пустая), затем сам сервер
-    startCommand: python seed.py && fastapi run app/main.py --port $PORT
+    # Демо-данные (seed.py) сюда не загружаем: на хостинге только настоящие пользователи
+    startCommand: fastapi run app/main.py --port $PORT
     healthCheckPath: /
     buildFilter:
       ignoredPaths:
-        - mobile/** # правки только в приложении не перезапускают API
+        - mobile/** # правки только в приложении или на сайте не перезапускают API
+        - site/**
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.12"
       - key: DATABASE_URL
         sync: false # адрес базы Neon — секрет: Render спросит его при создании
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false # ключ бота из @BotFather — секрет, вписать в Render → Environment
+      - key: CRON_SECRET
+        generateValue: true # Render сам придумает секрет; его же вписать в cron-job.org (DEPLOY.md)
+      - key: ADMIN_PHONES
+        sync: false # номера команды через запятую: им видна статистика (адрес /admin.html на сайте)
 
-  # ---------- Веб-версия мобильного приложения (Expo) ----------
+  # ---------- Сайт + веб-версия мобильного приложения (Expo) ----------
+  # На главной — сайт из папки site/, по адресу /app — приложение. Адрес у них общий,
+  # поэтому вход на сайте сохраняется и в приложении.
   - type: web
     name: subshare-kz # адрес будет https://subshare-kz.onrender.com
     runtime: static
-    buildCommand: cd mobile && npm ci && npx expo export --platform web --clear
-    staticPublishPath: mobile/dist
+    # Собираем приложение в папку dist/app, затем кладём рядом файлы сайта
+    buildCommand: cd mobile && npm ci && npx expo export --platform web --clear --output-dir ../dist/app && cp -r ../site/. ../dist/
+    staticPublishPath: dist
     buildFilter:
       paths:
-        - mobile/** # пересобираем, когда меняется приложение
+        - mobile/** # пересобираем, когда меняется приложение,
+        - site/** # ...сайт
         - render.yaml # ...или адрес API ниже
     routes:
-      # Любой адрес (например, /group/5) открывает приложение, дальше оно разберётся само
+      - type: redirect
+        source: /app
+        destination: /app/
+      # Любой адрес приложения (например, /app/group/5) открывает приложение, дальше оно разберётся само
       - type: rewrite
-        source: /*
-        destination: /index.html
+        source: /app/*
+        destination: /app/index.html
+      # Раньше приложение было на главной — старые ссылки на документы ведут на новые адреса
+      - type: redirect
+        source: /privacy
+        destination: /app/privacy
+      - type: redirect
+        source: /terms
+        destination: /app/terms
     envVars:
       - key: EXPO_PUBLIC_API_URL
-        value: https://subshare-kz-api.onrender.com # если Render выдал API другой адрес — поменяйте здесь
+        value: https://subshare-kz-api.onrender.com # если Render выдал API другой адрес — поменяйте здесь и в site/script.js
+      - key: EXPO_BASE_URL
+        value: /app # приложение живёт по адресу /app (см. mobile/app.config.js)
       - key: NODE_VERSION
         value: "22.20.0"
       - key: SKIP_INSTALL_DEPS

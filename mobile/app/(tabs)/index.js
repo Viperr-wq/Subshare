@@ -18,17 +18,16 @@ import { useAuth } from "../../lib/auth";
 import { firstName, formatDate, formatMoney } from "../../lib/format";
 import { colors, fonts, radius, shadow } from "../../lib/theme";
 import { useLoad } from "../../lib/useLoad";
+import { t } from "../../lib/i18n";
 
 const NBSP = String.fromCharCode(160); // неразрывный пробел: в этом месте строка не переносится
-const PER_MONTH = ` в${NBSP}месяц`; // «в месяц» переносится на новую строку только целиком
+// « в месяц»: переносится на новую строку только целиком
+const perMonth = () => " " + t("в месяц").replace(/ /g, NBSP);
 
 export default function SubscriptionsScreen() {
   const { user } = useAuth();
   const { data, error, loading, reload } = useLoad(async () => {
-    const [groups, debts] = await Promise.all([
-      api.getUserGroups(user.id),
-      api.getUserDebts(user.id),
-    ]);
+    const [groups, debts] = await Promise.all([api.getMyGroups(), api.getMyDebts()]);
     return { groups, debts };
   }, [user?.id]);
   const [refreshing, setRefreshing] = useState(false);
@@ -56,14 +55,14 @@ export default function SubscriptionsScreen() {
       <View style={styles.header}>
         {/* Имя — шрифтом Onest, а не Unbounded: в Unbounded нет казахских букв (Ә, Қ, Ұ и др.) */}
         <View style={styles.headerText}>
-          <Text style={styles.title}>Подписки</Text>
+          <Text style={styles.title}>{t("Подписки")}</Text>
           <Text style={styles.hello} numberOfLines={1}>
-            Привет, <Text style={styles.helloName}>{firstName(user.name)}</Text>!
+            {t("Привет,")} <Text style={styles.helloName}>{firstName(user.name)}</Text>!
           </Text>
         </View>
         <Pressable
           onPress={() => router.push("/profile")}
-          accessibilityLabel="Профиль"
+          accessibilityLabel={t("Профиль")}
           style={({ pressed }) => [styles.avatarButton, pressed && styles.pressed]}
         >
           <Avatar name={user.name} id={user.id} size={46} />
@@ -74,7 +73,7 @@ export default function SubscriptionsScreen() {
       {error ? (
         <View style={styles.reloadError}>
           <Ionicons name="cloud-offline-outline" size={18} color={colors.overdue} />
-          <Text style={styles.reloadErrorText}>Не получилось обновить. {error}</Text>
+          <Text style={styles.reloadErrorText}>{t("Не получилось обновить.")} {error}</Text>
         </View>
       ) : null}
 
@@ -89,9 +88,9 @@ export default function SubscriptionsScreen() {
       {groups.length > 0 ? (
         <>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Мои группы</Text>
+            <Text style={styles.sectionTitle}>{t("Мои группы")}</Text>
             <Button
-              title="Создать"
+              title={t("Создать")}
               icon="add"
               variant="secondary"
               small
@@ -108,11 +107,11 @@ export default function SubscriptionsScreen() {
         <Card>
           <EmptyState
             icon="albums-outline"
-            title="Пока нет групп"
-            text="Создайте группу для Netflix, Spotify или любой другой подписки — SubShare сам посчитает долю каждого"
+            title={t("Пока нет групп")}
+            text={t("Создайте группу для Netflix, Spotify или любой другой подписки — SubShare сам посчитает долю каждого")}
             action={
               <Button
-                title="Создать группу"
+                title={t("Создать группу")}
                 icon="add"
                 onPress={() => router.push("/group/new")}
                 style={styles.emptyButton}
@@ -151,18 +150,18 @@ function SummaryCard({ monthlyCost, savings, toPay }) {
         <View style={[styles.circle, styles.circleTop]} />
         <View style={[styles.circle, styles.circleBottom]} />
 
-        <Text style={styles.summaryLabel}>Подписки обходятся вам в</Text>
+        <Text style={styles.summaryLabel}>{t("Подписки обходятся вам в")}</Text>
         <Text style={styles.summaryAmount}>
           {formatMoney(monthlyCost)}
-          <Text style={styles.summaryPer}>{PER_MONTH}</Text>
+          <Text style={styles.summaryPer}>{perMonth()}</Text>
         </Text>
 
         <View style={styles.pills}>
           <View style={[styles.pill, styles.savingsPill]}>
             <Ionicons name="sparkles" size={15} color={colors.midnight} />
             <Text style={styles.pillText}>
-              Экономия <Text style={styles.pillAmount}>{formatMoney(savings)}</Text>
-              {PER_MONTH}
+              {t("Экономия")} <Text style={styles.pillAmount}>{formatMoney(savings)}</Text>
+              {perMonth()}
             </Text>
           </View>
 
@@ -173,7 +172,7 @@ function SummaryCard({ monthlyCost, savings, toPay }) {
             >
               <Ionicons name="wallet" size={15} color={colors.sapphire} />
               <Text style={styles.pillText}>
-                К оплате <Text style={styles.pillAmount}>{formatMoney(toPay)}</Text>
+                {t("К оплате")} <Text style={styles.pillAmount}>{formatMoney(toPay)}</Text>
               </Text>
               <Ionicons name="chevron-forward" size={15} color={colors.sapphire} />
             </Pressable>
@@ -198,7 +197,7 @@ function DebtBanner({ debts, toPay }) {
       </View>
       <View style={styles.debtInfo}>
         <Text style={styles.debtLabel}>
-          {debts.length === 1 ? "Остался неоплаченный счёт" : "Остались неоплаченные счета"}
+          {debts.length === 1 ? t("Остался неоплаченный счёт") : t("Остались неоплаченные счета")}
         </Text>
         <Text style={styles.debtAmount}>{formatMoney(toPay)}</Text>
         <DebtBadge debt={debt} style={styles.debtBadge} />
@@ -231,10 +230,10 @@ function GroupCard({ group, userId, debts }) {
                 {group.service_name}
               </Text>
               <Text style={[styles.groupMeta, styles.membersCount]}>
-                {` · ${group.members_count} из ${group.max_members}`}
+                {t(" · {members_count} из {max_members}", { members_count: group.members_count, max_members: group.max_members })}
               </Text>
             </View>
-            <Text style={styles.perMonth}>в месяц</Text>
+            <Text style={styles.perMonth}>{t("в месяц")}</Text>
           </View>
         </View>
       </View>
@@ -251,11 +250,11 @@ function GroupCard({ group, userId, debts }) {
 
 function GroupStatus({ group, userId, debts }) {
   if (group.owner_id === userId) {
-    return <StatusBadge state="owner" label="Вы владелец" />;
+    return <StatusBadge state="owner" label={t("Вы владелец")} />;
   }
   const debt = urgentDebt(debts.filter((d) => d.group_id === group.id));
   if (!debt) {
-    return <StatusBadge state="paid" label="Долгов нет" />;
+    return <StatusBadge state="paid" label={t("Долгов нет")} />;
   }
   return <DebtBadge debt={debt} />;
 }
@@ -263,7 +262,7 @@ function GroupStatus({ group, userId, debts }) {
 // Срок неоплаченного счёта: «Просрочено» или «Оплатить до 5 октября»
 function DebtBadge({ debt, style }) {
   const state = paymentState(debt); // "pending" или "overdue"
-  const label = state === "overdue" ? "Просрочено" : `Оплатить до ${formatDate(debt.due_date)}`;
+  const label = state === "overdue" ? t("Просрочено") : t("Оплатить до {date}", { date: formatDate(debt.due_date) });
   return <StatusBadge state={state} label={label} style={style} />;
 }
 

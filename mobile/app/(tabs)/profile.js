@@ -1,8 +1,10 @@
-// Вкладка «Профиль»: кто вошёл, немного статистики, как работает SubShare и выход.
+// Вкладка «Профиль»: кто вошёл, статистика, как работает SubShare, язык,
+// документы, выход и удаление аккаунта.
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Avatar } from "../../components/Avatar";
 import { Button } from "../../components/Button";
@@ -12,13 +14,16 @@ import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useDialogs } from "../../lib/dialogs";
 import { formatMoney, formatPhone, plural } from "../../lib/format";
+import { LANGUAGES, t, useLanguage } from "../../lib/i18n";
 import { colors, fonts, radius } from "../../lib/theme";
+import { APP_VERSION, SUPPORT_URL } from "../../lib/updates";
 import { useLoad } from "../../lib/useLoad";
 
+// Тексты переводятся при показе (t), поэтому здесь они по-русски
 const STEPS = [
   "Владелец создаёт группу и добавляет друзей по номеру телефона",
-  "Раз в месяц владелец выставляет счета, а SubShare сам считает долю каждого",
-  "Участники переводят долю владельцу (например, через Kaspi) и отмечают оплату",
+  "В начале месяца SubShare сам выставляет счета и считает долю каждого",
+  "Участники переводят долю владельцу (например, через Kaspi) и отмечают перевод, а владелец подтверждает",
 ];
 
 // Экономия в месяц: в каждой группе человек платит только свою долю, а не всю цену подписки
@@ -33,10 +38,10 @@ function monthlySavings(groups, userId) {
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
-  const { confirm } = useDialogs();
+  const { confirm, toast } = useDialogs();
   // Группы нужны только для статистики, поэтому профиль показываем сразу, не дожидаясь их:
   // даже без связи с сервером из аккаунта можно выйти
-  const { data: groups, error, reload } = useLoad(() => api.getUserGroups(user.id), [user?.id]);
+  const { data: groups, error, reload } = useLoad(() => api.getMyGroups(), [user?.id]);
   const [refreshing, setRefreshing] = useState(false);
 
   async function refresh() {
@@ -47,12 +52,31 @@ export default function ProfileScreen() {
 
   async function handleSignOut() {
     const ok = await confirm({
-      title: "Выйти из аккаунта?",
-      message: "Группы и платежи сохранятся. Чтобы вернуться, войдите по номеру телефона.",
-      confirmText: "Выйти",
+      title: t("Выйти из аккаунта?"),
+      message: t("Группы и платежи сохранятся. Чтобы вернуться, войдите через Telegram."),
+      confirmText: t("Выйти"),
       danger: true,
     });
     if (ok) await signOut();
+  }
+
+  async function handleDelete() {
+    const ok = await confirm({
+      title: t("Удалить аккаунт?"),
+      message: t(
+        "Удалятся ваш профиль, ваши группы со всеми счетами и ваше участие в чужих группах. Отменить это нельзя."
+      ),
+      confirmText: t("Удалить"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.deleteMe();
+      toast(t("Аккаунт удалён"));
+      await signOut();
+    } catch (e) {
+      toast(e.message);
+    }
   }
 
   // На случай, если экран успеет отрисоваться уже после выхода из аккаунта
@@ -60,7 +84,7 @@ export default function ProfileScreen() {
 
   return (
     <Screen safeTop refreshing={refreshing} onRefresh={refresh}>
-      <Text style={styles.title}>Профиль</Text>
+      <Text style={styles.title}>{t("Профиль")}</Text>
 
       <View style={styles.profileShadow}>
         <LinearGradient
@@ -87,25 +111,25 @@ export default function ProfileScreen() {
         <StatTile
           icon="albums"
           value={groups ? groups.length : "—"}
-          label={groups ? plural(groups.length, "Группа", "Группы", "Групп") : "Групп"}
+          label={groups ? plural(groups.length, "Группа", "Группы", "Групп") : t("Групп")}
         />
         <StatTile
           accent
           icon="sparkles"
           value={groups ? formatMoney(monthlySavings(groups, user.id)) : "—"}
-          label="Экономия в месяц"
+          label={t("Экономия в месяц")}
         />
       </View>
 
       {error ? (
         <View style={styles.reloadError}>
           <Ionicons name="cloud-offline-outline" size={18} color={colors.overdue} />
-          <Text style={styles.reloadErrorText}>Не получилось загрузить статистику. {error}</Text>
+          <Text style={styles.reloadErrorText}>{t("Не получилось загрузить статистику.")} {error}</Text>
         </View>
       ) : null}
 
       <Card style={styles.how}>
-        <Text style={styles.sectionTitle}>Как работает SubShare</Text>
+        <Text style={styles.sectionTitle}>{t("Как работает SubShare")}</Text>
         {STEPS.map((step, index) => (
           <View key={step} style={styles.step}>
             <LinearGradient
@@ -116,7 +140,7 @@ export default function ProfileScreen() {
             >
               <Text style={styles.stepNumberText}>{index + 1}</Text>
             </LinearGradient>
-            <Text style={styles.stepText}>{step}</Text>
+            <Text style={styles.stepText}>{t(step)}</Text>
           </View>
         ))}
       </Card>
@@ -124,15 +148,72 @@ export default function ProfileScreen() {
       <View style={styles.note}>
         <Ionicons name="shield-checkmark-outline" size={22} color={colors.sapphire} />
         <Text style={styles.noteText}>
-          Деньги через SubShare не проходят — приложение считает доли и показывает, какие из них уже оплачены.
-          Оплата прямо в приложении появится после подключения платёжной системы.
+          {t("Деньги через SubShare не проходят — приложение считает доли и показывает, какие из них уже оплачены. Оплата прямо в приложении появится после подключения платёжной системы.")}
         </Text>
       </View>
 
-      <Button title="Выйти" variant="danger" icon="log-out-outline" onPress={handleSignOut} />
+      <Card style={styles.how}>
+        <Text style={styles.sectionTitle}>{t("Язык")}</Text>
+        <LanguagePicker />
+      </Card>
 
-      <Text style={styles.version}>SubShare · версия 0.2</Text>
+      <Card style={styles.links}>
+        <LinkRow
+          icon="document-text-outline"
+          title={t("Условия использования")}
+          onPress={() => router.push("/terms")}
+        />
+        <LinkRow
+          icon="shield-outline"
+          title={t("Политика конфиденциальности")}
+          onPress={() => router.push("/privacy")}
+        />
+        <LinkRow
+          icon="chatbubble-ellipses-outline"
+          title={t("Написать в поддержку")}
+          onPress={() => Linking.openURL(SUPPORT_URL)}
+        />
+      </Card>
+
+      <Button title={t("Выйти")} variant="secondary" icon="log-out-outline" onPress={handleSignOut} />
+      <Button title={t("Удалить аккаунт")} variant="danger" icon="trash-outline" onPress={handleDelete} />
+
+      <Text style={styles.version}>{t("SubShare · версия {version}", { version: APP_VERSION })}</Text>
     </Screen>
+  );
+}
+
+// Выбор языка: русский, казахский, английский
+function LanguagePicker() {
+  const { language, setLanguage } = useLanguage();
+  return (
+    <View style={styles.languages}>
+      {LANGUAGES.map((l) => (
+        <Button
+          key={l.code}
+          title={l.name}
+          small
+          variant={l.code === language ? "primary" : "secondary"}
+          style={styles.languageButton}
+          onPress={() => setLanguage(l.code)}
+        />
+      ))}
+    </View>
+  );
+}
+
+// Строка-ссылка: значок, текст и стрелка
+function LinkRow({ icon, title, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="link"
+      style={({ pressed }) => [styles.linkRow, pressed && styles.linkPressed]}
+    >
+      <Ionicons name={icon} size={20} color={colors.sapphire} />
+      <Text style={styles.linkText}>{title}</Text>
+      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+    </Pressable>
   );
 }
 
@@ -245,6 +326,12 @@ const styles = StyleSheet.create({
   },
 
   how: { gap: 14 },
+  languages: { flexDirection: "row", gap: 8 },
+  languageButton: { flex: 1, paddingHorizontal: 6 },
+  links: { paddingVertical: 4 },
+  linkRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
+  linkPressed: { opacity: 0.6 },
+  linkText: { flex: 1, fontFamily: fonts.medium, fontSize: 15, color: colors.text },
   sectionTitle: { fontFamily: fonts.headingSemi, fontSize: 16, color: colors.text },
   step: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   stepNumber: {

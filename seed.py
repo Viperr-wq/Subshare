@@ -3,7 +3,8 @@
 
 Запуск:  python seed.py
 
-Демо-вход в приложение: Аружан, телефон +7 701 000 00 01.
+Демо-вход в приложение: телефон +7 701 000 00 01, пароль demo2026.
+У остальных демо-пользователей (+7 701 000 00 02 … 06) пароль тот же.
 
 Создаётся пример из описания идеи — Netflix за 6000 ₸ на 4 человека — и ещё
 несколько групп, чтобы в приложении были видны все ситуации:
@@ -20,7 +21,10 @@ from datetime import date, datetime, timezone
 
 from app import models
 from app.database import Base, SessionLocal, engine
-from app.logic import due_date_for, split_price
+from app.logic import due_date_for, hash_password, split_price
+
+# Пароль всех демо-пользователей. С ним входит кнопка «Посмотреть демо» в приложении.
+DEMO_PASSWORD = "demo2026"
 
 
 def make_group(db, name, service_name, total_price, billing_day, max_members, owner, members):
@@ -67,12 +71,14 @@ def main():
         db.close()
         return
 
-    aruzhan = models.User(name="Артем", phone="+77010000001")
-    daniyar = models.User(name="1", phone="+77010000002")
-    madina = models.User(name="2", phone="+77010000003")
-    timur = models.User(name="3", phone="+77010000004")
-    aliya = models.User(name="4", phone="+77010000005")
-    erlan = models.User(name="5", phone="+77010000006")
+    # Пароль у всех один, поэтому и хеш считаем один раз (на хостинге это заметно быстрее)
+    password_hash = hash_password(DEMO_PASSWORD)
+    aruzhan = models.User(name="Артем", phone="+77010000001", password_hash=password_hash)
+    daniyar = models.User(name="1", phone="+77010000002", password_hash=password_hash)
+    madina = models.User(name="2", phone="+77010000003", password_hash=password_hash)
+    timur = models.User(name="3", phone="+77010000004", password_hash=password_hash)
+    aliya = models.User(name="4", phone="+77010000005", password_hash=password_hash)
+    erlan = models.User(name="5", phone="+77010000006", password_hash=password_hash)
     db.add_all([aruzhan, daniyar, madina, timur, aliya, erlan])
     db.flush()  # чтобы у пользователей появились id
 
@@ -130,8 +136,8 @@ def main():
 
     db.commit()
     print(f"Готово! Демо-данные созданы, счета выставлены за {period}.")
-    print("Вход в приложение: телефон +7 701 000 00 01 (Аружан).")
-    print(f"Проверить API: http://127.0.0.1:8000/groups/{netflix.id}/payments/{period}")
+    print(f"Вход в приложение: телефон +7 701 000 00 01, пароль {DEMO_PASSWORD}.")
+    print("Проверить API: http://127.0.0.1:8000/docs — POST /login, затем кнопка Authorize.")
     db.close()
 
 

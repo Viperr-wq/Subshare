@@ -5,10 +5,11 @@
 //   const { confirm, toast } = useDialogs();
 //   if (await confirm({ title: "Удалить группу?", confirmText: "Удалить", danger: true })) { ... }
 //   toast("Группа создана");
-import { createContext, useContext, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Button } from "../components/Button";
+import { t } from "./i18n";
 import { colors, fonts, radius } from "./theme";
 
 const DialogContext = createContext(null);
@@ -19,7 +20,7 @@ export function DialogProvider({ children }) {
   const toastTimer = useRef(null);
 
   // Показывает окно и ждёт ответа: true — «Да», false — «Отмена»
-  function confirm({ title, message, confirmText = "Да", cancelText = "Отмена", danger = false }) {
+  function confirm({ title, message, confirmText = t("Да"), cancelText = t("Отмена"), danger = false }) {
     return new Promise((resolve) => {
       setDialog({ title, message, confirmText, cancelText, danger, resolve });
     });
@@ -29,6 +30,16 @@ export function DialogProvider({ children }) {
     dialog?.resolve(answer);
     setDialog(null);
   }
+
+  // Системная кнопка «Назад» на Android закрывает открытое окно, как «Отмена»
+  useEffect(() => {
+    if (!dialog) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      close(false);
+      return true; // кнопку обработали — дальше (на прошлый экран) не идём
+    });
+    return () => subscription.remove();
+  }, [dialog]);
 
   function toast(text) {
     setToastText(text);

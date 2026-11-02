@@ -1,36 +1,34 @@
 // Кто сейчас вошёл в приложение.
-// Пользователь запоминается в памяти устройства (AsyncStorage; в браузере это
-// localStorage), чтобы не входить заново при каждом запуске.
+// Ключ входа (токен) и данные пользователя запоминаются в памяти устройства
+// (AsyncStorage; в браузере это localStorage), чтобы не входить заново при каждом запуске.
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useContext, useEffect, useState } from "react";
 
-import { api } from "./api";
+import { api, setAuthToken, setOnUnauthorized } from "./api";
 
-const STORAGE_KEY = "subshare.user";
+const STORAGE_KEY = "subshare.session"; // { token, user }
+const OLD_STORAGE_KEY = "subshare.user"; // так вход хранила прошлая версия — без ключа
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [ready, setReady] = useState(false); // прочитали ли уже сохранённого пользователя
+  const [ready, setReady] = useState(false); // прочитали ли уже сохранённый вход
 
   useEffect(() => {
+    // Сервер сказал, что ключ недействителен, — забываем вход, откроется экран входа
+    setOnUnauthorized(forget);
+
     async function restore() {
       try {
+        await AsyncStorage.removeItem(OLD_STORAGE_KEY);
         const saved = await AsyncStorage.getItem(STORAGE_KEY);
         if (saved) {
-          const savedUser = JSON.parse(saved);
-          setUser(savedUser);
-          // В фоне сверяемся с сервером: базу могли очистить, и тогда под этим id
-          // теперь другой человек (или никого нет) — просим войти заново
-          api
-            .getUser(savedUser.id)
-            .then((fresh) => {
-              if (fresh.phone === savedUser.phone) signIn(fresh);
-              else signOut();
-            })
-            .catch((error) => {
-              if (error.status === 404) signOut();
-            });
+          const session = JSON.parse(saved);
+          setAuthToken(session.token);
+          setUser(session.user);
+          // В фоне проверяем, что ключ ещё действует. Если нет (например, базу очистили),
+          // сработает setOnUnauthorized выше. Нет сети — не страшно, проверим в другой раз
+          api.getMe().catch(() => {});
         }
       } catch {
         // Не получилось прочитать — просто покажем экран входа
@@ -40,14 +38,26 @@ export function AuthProvider({ children }) {
     restore();
   }, []);
 
-  async function signIn(newUser) {
-    setUser(newUser);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newUser));
+  // session — ответ сервера на вход или регистрацию: { token, user }
+  async function signIn(session) {
+    setAuthToken(session.token);
+    setUser(session.user);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(session));
   }
 
-  async function signOut() {
+  // Забыть вход на этом устройстве
+  async function forget() {
+    setAuthToken(null);
     setUser(null);
     await AsyncStorage.removeItem(STORAGE_KEY);
+  }
+
+  // Кнопка «Выйти»: просим сервер удалить ключ и забываем вход. Запрос уходит сразу,
+  // с текущим ключом, поэтому ждать ответа не нужно. Нет сети — не страшно:
+  // на этом устройстве ключа всё равно не останется.
+  async function signOut() {
+    api.logout().catch(() => {});
+    await forget();
   }
 
   return (

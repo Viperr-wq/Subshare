@@ -2,6 +2,7 @@
 // Деньги через SubShare не проходят: человек сам переводит долю (например, через Kaspi),
 // а здесь отмечает, что оплата сделана.
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -16,7 +17,8 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useDialogs } from "../../lib/dialogs";
-import { formatDate, formatMoney, formatPhone, periodLabel, plural } from "../../lib/format";
+import { formatDate, formatMoney, formatPhone, periodName, plural } from "../../lib/format";
+import { t } from "../../lib/i18n";
 import { colors, fonts, radius } from "../../lib/theme";
 import { useLoad } from "../../lib/useLoad";
 
@@ -25,13 +27,12 @@ export default function PaymentsScreen() {
   const { confirm, toast } = useDialogs();
   const { data, error, loading, reload } = useLoad(async () => {
     const [debts, groups] = await Promise.all([
-      api.getUserDebts(user.id),
+      api.getMyDebts(),
       // Группы нужны для цвета аватаров и текста на пустом экране.
       // Если они не загрузились, долги всё равно показываем
-      api.getUserGroups(user.id).catch(() => []),
+      api.getMyGroups().catch(() => []),
     ]);
-    const ownerIds = await loadOwnerIds(debts, groups);
-    return { debts, groups, ownerIds };
+    return { debts, groups, ownerIds: ownerIdsByGroup(groups) };
   }, [user?.id]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -43,21 +44,31 @@ export default function PaymentsScreen() {
     setRefreshing(false);
   }
 
-  async function markPaid(payment) {
+  // «Я перевёл». Счёт останется в списке с пометкой «Ждёт подтверждения»,
+  // пока владелец не подтвердит, что деньги пришли
+  async function markSent(payment) {
     const ok = await confirm({
-      title: "Отметить оплату?",
-      message: `Вы перевели ${formatMoney(payment.amount)} владельцу группы (${payment.owner_name})?`,
-      confirmText: "Да, оплачено",
+      title: t("Отметить перевод?"),
+      message: t("Вы перевели {amount} владельцу группы ({owner})?", {
+        amount: formatMoney(payment.amount),
+        owner: payment.owner_name,
+      }),
+      confirmText: t("Да, перевод сделан"),
     });
     if (!ok) return;
 
     try {
-      await api.markPaid(payment.id);
-      toast("Оплата отмечена");
+      await api.markSent(payment.id);
+      toast(t("Отмечено — ждём подтверждения владельца"));
     } catch (e) {
       toast(e.message);
     }
-    await reload(); // оплаченный счёт пропадёт из списка
+    await reload();
+  }
+
+  async function copyPhone(payment) {
+    await Clipboard.setStringAsync(payment.owner_phone);
+    toast(t("Номер скопирован"));
   }
 
   // На случай, если экран успеет отрисоваться уже после выхода из аккаунта
@@ -75,15 +86,15 @@ export default function PaymentsScreen() {
   return (
     <Screen safeTop refreshing={refreshing} onRefresh={refresh}>
       <View style={styles.header}>
-        <Text style={styles.title}>Платежи</Text>
-        <Text style={styles.subtitle}>Ваши доли в общих подписках</Text>
+        <Text style={styles.title}>{t("Платежи")}</Text>
+        <Text style={styles.subtitle}>{t("Ваши доли в общих подписках")}</Text>
       </View>
 
       {/* Данные уже есть, но обновить их не получилось (например, пропала сеть) */}
       {error ? (
         <View style={styles.reloadError}>
           <Ionicons name="cloud-offline-outline" size={18} color={colors.overdue} />
-          <Text style={styles.reloadErrorText}>Не получилось обновить. {error}</Text>
+          <Text style={styles.reloadErrorText}>{t("Не получилось обновить.")} {error}</Text>
         </View>
       ) : null}
 
@@ -92,14 +103,14 @@ export default function PaymentsScreen() {
           {isMember ? (
             <EmptyState
               icon="checkmark-done-circle-outline"
-              title="Долгов нет"
-              text="Все ваши доли оплачены. Новые счета появятся здесь, когда владелец группы их выставит."
+              title={t("Долгов нет")}
+              text={t("Все ваши доли оплачены. Новые счета появятся здесь, когда владелец группы их выставит.")}
             />
           ) : (
             <EmptyState
               icon="receipt-outline"
-              title="Пока нет счетов"
-              text="Когда вас добавят в группу и её владелец выставит счёт, он появится здесь."
+              title={t("Пока нет счетов")}
+              text={t("Когда вас добавят в группу и её владелец выставит счёт, он появится здесь.")}
             />
           )}
         </Card>
@@ -111,7 +122,8 @@ export default function PaymentsScreen() {
               key={payment.id}
               payment={payment}
               ownerId={ownerIds[payment.group_id]}
-              onMarkPaid={() => markPaid(payment)}
+              onMarkSent={() => markSent(payment)}
+              onCopyPhone={() => copyPhone(payment)}
             />
           ))}
         </>
@@ -122,23 +134,12 @@ export default function PaymentsScreen() {
 
 // Цвет аватара выбирается по id человека, поэтому он одинаковый на всех экранах.
 // В счёте есть имя и телефон владельца, но нет его id — берём id из группы.
-// Обычно группа есть в списке групп пользователя. Если человек из неё уже вышел,
-// а долг остался, загружаем группу отдельно. Результат: { id группы: id владельца }
-async function loadOwnerIds(debts, groups) {
+// Если человек из группы уже вышел, а долг остался, сервер эту группу ему больше
+// не показывает — тогда аватар просто будет цвета по умолчанию.
+// Результат: { id группы: id владельца }
+function ownerIdsByGroup(groups) {
   const ownerIds = {};
   for (const group of groups) ownerIds[group.id] = group.owner_id;
-
-  // Группы, которых нет в списке (каждую — один раз)
-  const missing = [];
-  for (const payment of debts) {
-    const id = payment.group_id;
-    if (ownerIds[id] === undefined && !missing.includes(id)) missing.push(id);
-  }
-  // Если группа не загрузилась, аватар просто будет цвета по умолчанию
-  const loaded = await Promise.all(missing.map((id) => api.getGroup(id).catch(() => null)));
-  for (const group of loaded) {
-    if (group) ownerIds[group.id] = group.owner_id;
-  }
   return ownerIds;
 }
 
@@ -156,7 +157,7 @@ function Summary({ total, count, overdueCount }) {
         <View style={[styles.circle, styles.circleTop]} />
         <View style={[styles.circle, styles.circleBottom]} />
 
-        <Text style={styles.summaryLabel}>К оплате</Text>
+        <Text style={styles.summaryLabel}>{t("К оплате")}</Text>
         <Text style={styles.summaryAmount}>{formatMoney(total)}</Text>
 
         <View style={styles.pills}>
@@ -182,7 +183,7 @@ function Summary({ total, count, overdueCount }) {
 }
 
 // Карточка одного счёта: за что платить, сколько, до какого числа и кому переводить
-function DebtCard({ payment, ownerId, onMarkPaid }) {
+function DebtCard({ payment, ownerId, onMarkSent, onCopyPhone }) {
   return (
     <Card style={[styles.debt, payment.is_overdue && styles.debtOverdue]}>
       <View style={styles.debtTop}>
@@ -191,7 +192,7 @@ function DebtCard({ payment, ownerId, onMarkPaid }) {
           <Text style={styles.serviceName} numberOfLines={2}>
             {payment.service_name}
           </Text>
-          <Text style={styles.period}>за {periodLabel(payment.period).toLowerCase()}</Text>
+          <Text style={styles.period}>{t("за {month}", { month: periodName(payment.period) })}</Text>
         </View>
       </View>
 
@@ -199,19 +200,21 @@ function DebtCard({ payment, ownerId, onMarkPaid }) {
           названию подписки хватает места даже на узком телефоне */}
       <View style={styles.amountRow}>
         <Text style={styles.amount}>{formatMoney(payment.amount)}</Text>
-        {payment.is_overdue ? (
-          <StatusBadge state="overdue" label="Просрочено" style={styles.badge} />
+        {payment.status === "sent" ? (
+          <StatusBadge state="sent" style={styles.badge} />
+        ) : payment.is_overdue ? (
+          <StatusBadge state="overdue" label={t("Просрочено")} style={styles.badge} />
         ) : (
           <StatusBadge
             state="pending"
-            label={`До ${formatDate(payment.due_date)}`}
+            label={t("До {date}", { date: formatDate(payment.due_date) })}
             style={styles.badge}
           />
         )}
       </View>
 
       <View style={styles.receiver}>
-        <Text style={styles.receiverLabel}>Кому перевести</Text>
+        <Text style={styles.receiverLabel}>{t("Кому перевести")}</Text>
         <View style={styles.receiverRow}>
           <Avatar name={payment.owner_name} id={ownerId} size={40} />
           <View style={styles.receiverInfo}>
@@ -221,14 +224,19 @@ function DebtCard({ payment, ownerId, onMarkPaid }) {
               {formatPhone(payment.owner_phone)}
             </Text>
           </View>
+          <Button title={t("Копировать")} icon="copy-outline" variant="secondary" small onPress={onCopyPhone} />
         </View>
         <View style={styles.hintRow}>
           <Ionicons name="information-circle-outline" size={16} color={colors.textMuted} />
-          <Text style={styles.hint}>Переведите через Kaspi по номеру телефона</Text>
+          <Text style={styles.hint}>{t("Переведите по номеру телефона — через Kaspi или любой банк")}</Text>
         </View>
       </View>
 
-      <Button title="Отметить оплату" icon="checkmark" onPress={onMarkPaid} />
+      {payment.status === "sent" ? (
+        <Text style={styles.hint}>{t("Владелец получит сообщение и подтвердит, что деньги пришли")}</Text>
+      ) : (
+        <Button title={t("Отметить перевод")} icon="checkmark" onPress={onMarkSent} />
+      )}
     </Card>
   );
 }
