@@ -15,6 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field
 # цифры (например, полноширинные ０-９), и тогда один номер мог бы записаться двумя способами.
 PHONE_PATTERN = r"^\+7[0-9]{10}$"
 
+# Почта: что-то@что-то.домен. Подробнее не проверяем: настоящая ли она, покажет код из письма
+EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+EMAIL_CODE_PATTERN = r"^[0-9]{6}$"
+
 # Верхняя граница цены подписки — защита от лишних нулей при вводе
 MAX_PRICE = 10_000_000
 
@@ -46,6 +50,7 @@ class UserOut(BaseModel):
     id: int
     name: str
     phone: str
+    email: str | None = Field(default=None, description="Почта — если человек регистрировался по почте")
     language: str = Field(description="Язык уведомлений: ru, kk или en")
 
 
@@ -63,6 +68,55 @@ class AuthOut(BaseModel):
 
     token: str = Field(description="Ключ входа: заголовок Authorization: Bearer <ключ>")
     user: UserOut
+
+
+# Вход по почте. Пробелы по краям убираем во всех полях (и в пароле — одинаково
+# при регистрации и при входе)
+
+
+class EmailRegisterIn(BaseModel):
+    """Регистрация по почте. Аккаунт появится, когда человек введёт код из письма."""
+
+    model_config = STRIP
+
+    name: str = Field(min_length=1, max_length=100, examples=["Аружан"])
+    email: str = Field(max_length=254, pattern=EMAIL_PATTERN, examples=["aruzhan@example.com"])
+    phone: str = Field(pattern=PHONE_PATTERN, examples=["+77011234567"])
+    password: str = Field(min_length=8, max_length=128, description="Не короче 8 символов")
+
+
+class EmailCodeIn(BaseModel):
+    model_config = STRIP
+
+    email: str = Field(max_length=254, pattern=EMAIL_PATTERN, examples=["aruzhan@example.com"])
+    code: str = Field(pattern=EMAIL_CODE_PATTERN, examples=["123456"])
+
+
+class EmailLoginIn(BaseModel):
+    model_config = STRIP
+
+    email: str = Field(max_length=254, pattern=EMAIL_PATTERN, examples=["aruzhan@example.com"])
+    password: str = Field(min_length=1, max_length=128)
+
+
+class EmailIn(BaseModel):
+    model_config = STRIP
+
+    email: str = Field(max_length=254, pattern=EMAIL_PATTERN, examples=["aruzhan@example.com"])
+
+
+class PasswordResetIn(BaseModel):
+    model_config = STRIP
+
+    email: str = Field(max_length=254, pattern=EMAIL_PATTERN, examples=["aruzhan@example.com"])
+    code: str = Field(pattern=EMAIL_CODE_PATTERN, examples=["123456"])
+    password: str = Field(min_length=8, max_length=128, description="Новый пароль, не короче 8 символов")
+
+
+class EmailCodeOut(BaseModel):
+    """Письмо с кодом отправлено."""
+
+    expires_in: int = Field(description="Сколько секунд действует код")
 
 
 class TelegramLoginOut(BaseModel):
@@ -91,6 +145,7 @@ class ClientOut(BaseModel):
 
     name: str
     phone: str
+    email: str | None
     language: str
     created: date = Field(description="Когда появился аккаунт (дата по времени Казахстана)")
     groups: int = Field(description="В скольких группах состоит")

@@ -11,9 +11,10 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import re
 from datetime import date, timedelta
 
-from app import models, telegram
+from app import mail, models, telegram
 from app.database import Base, get_db
 from app.logic import check_password, hash_password, normalize_phone, split_price, utcnow
 from app.main import app
@@ -58,6 +59,41 @@ def bot(monkeypatch):
     monkeypatch.setattr(telegram, "bot_username", "SubShareTestBot")
     monkeypatch.setattr(telegram, "call", lambda method, **params: sent.append(params))
     return sent
+
+
+@pytest.fixture(autouse=True)
+def mails(monkeypatch):
+    """Ненастоящая почта: письма не уходят в интернет, а складываются в список mails."""
+    sent = []
+
+    def send(to, subject, text):
+        sent.append({"to": to, "subject": subject, "text": text})
+        return True
+
+    monkeypatch.setattr(mail, "send", send)
+    return sent
+
+
+EMAIL = "aruzhan@example.com"
+
+
+def code_from(mails):
+    """Код из последнего письма — 6 цифр."""
+    return re.search(r"\d{6}", mails[-1]["text"]).group()
+
+
+def other_code(code):
+    """Заведомо неверный код."""
+    return "111111" if code != "111111" else "222222"
+
+
+def register_by_email(client, mails, email=EMAIL, phone="+77010000001", name="Аружан"):
+    """Регистрация по почте, как в приложении: данные → код из письма → аккаунт."""
+    data = {"name": name, "email": email, "phone": phone, "password": PASSWORD}
+    assert client.post("/register/email", json=data).status_code == 200
+    response = client.post("/register/email/confirm", json={"email": email, "code": code_from(mails)})
+    assert response.status_code == 201
+    return response.json()
 
 
 def texts_to(bot, telegram_id):
@@ -358,7 +394,9 @@ def test_telegram_login_step_by_step(client, bot):
     # Свой номер — вход подтверждён, приложение получает ключ
     assert "Готово" in share_contact(client, 555, "+77010000001", "Аружан").json()["text"]
     data = client.post("/login/telegram/check", json=check).json()
-    assert data["user"] == {"id": 1, "name": "Аружан", "phone": "+77010000001", "language": "ru"}
+    assert data["user"] == {
+        "id": 1, "name": "Аружан", "phone": "+77010000001", "email": None, "language": "ru"
+    }
     me = client.get("/me", headers={"Authorization": f"Bearer {data['token']}"})
     assert me.json() == data["user"]
 
@@ -792,3 +830,69 @@ def test_admin_stats_only_for_team(client, monkeypatch):
     stats = client.get("/admin/stats", headers=owner["auth"]).json()
     assert (stats["accounts"], stats["new_week"], stats["invited"], stats["groups"]) == (2, 2, 1, 1)
     assert [(c["name"], c["groups"]) for c in stats["clients"]] == [("Данияр", 0), ("Аружан", 1)]
+
+
+# ---------- Регистрация по почте ----------
+
+
+def test_register_by_email(client, mails):
+    """Данные → код из письма → аккаунт. Потом вход по почте и паролю."""
+    data = {"name": "Аружан", "email": " Aruzhan@Example.COM ", "phone": "+77010000001", "password": PASSWORD}
+    assert client.post("/register/email", json=data).status_code == 200
+    assert mails[-1]["to"] == EMAIL  # почту храним маленькими буквами
+    code = code_from(mails)
+    assert code in mails[-1]["subject"]
+
+    confirm = {"email": EMAIL, "code": code}
+    assert client.post("/register/email/confirm", json={**confirm, "code": other_code(code)}).status_code == 400
+    response = client.post("/register/email/confirm", json=confirm)
+    assert response.status_code == 201
+    user = response.json()["user"]
+    assert (user["name"], user["email"], user["phone"]) == ("Аружан", EMAIL, "+77010000001")
+    assert client.post("/register/email/confirm", json=confirm).status_code == 410  # код одноразовый
+
+    assert client.post("/login/email", json={"email": "ARUZHAN@example.com", "password": PASSWORD}).status_code == 200
+    assert client.post("/login/email", json={"email": EMAIL, "password": "wrong-password"}).status_code == 401
+
+
+def test_email_registration_needs_free_email_and_phone(client, mails):
+    """Номер не проверяется, поэтому занятый номер (есть в SubShare) не принимаем — как и занятую почту."""
+    make_user(client, "Данияр", "+77010000002")  # уже вошёл через Telegram
+    taken_phone = {"name": "Кто-то", "email": "someone@example.com", "phone": "+77010000002", "password": PASSWORD}
+    assert client.post("/register/email", json=taken_phone).status_code == 409
+
+    register_by_email(client, mails)
+    taken_email = {"name": "Аружан", "email": EMAIL, "phone": "+77010000009", "password": PASSWORD}
+    assert client.post("/register/email", json=taken_email).status_code == 409
+    short_password = {**taken_email, "email": "new@example.com", "password": "1234567"}
+    assert client.post("/register/email", json=short_password).status_code == 422
+
+
+def test_email_code_limits(client, mails):
+    """Новый код — не чаще раза в минуту; после 5 неверных попыток код сгорает."""
+    data = {"name": "Аружан", "email": EMAIL, "phone": "+77010000001", "password": PASSWORD}
+    assert client.post("/register/email", json=data).status_code == 200
+    assert client.post("/register/email", json=data).status_code == 429
+    assert len(mails) == 1
+
+    code = code_from(mails)
+    wrong = {"email": EMAIL, "code": other_code(code)}
+    for _ in range(4):
+        assert client.post("/register/email/confirm", json=wrong).status_code == 400
+    assert client.post("/register/email/confirm", json=wrong).status_code == 410
+    assert client.post("/register/email/confirm", json={"email": EMAIL, "code": code}).status_code == 410
+
+
+def test_reset_forgotten_password(client, mails):
+    """Забыли пароль: код на почту → новый пароль. Старый пароль и старые входы больше не действуют."""
+    old = register_by_email(client, mails)
+    assert client.post("/password/forgot", json={"email": "nobody@example.com"}).status_code == 404
+    assert client.post("/password/forgot", json={"email": EMAIL}).status_code == 200
+
+    reset = {"email": EMAIL, "code": code_from(mails), "password": "new-secret-1"}
+    response = client.post("/password/reset", json=reset)
+    assert response.status_code == 200
+    assert client.get("/me", headers={"Authorization": f"Bearer {old['token']}"}).status_code == 401
+    assert client.get("/me", headers={"Authorization": f"Bearer {response.json()['token']}"}).status_code == 200
+    assert client.post("/login/email", json={"email": EMAIL, "password": PASSWORD}).status_code == 401
+    assert client.post("/login/email", json={"email": EMAIL, "password": "new-secret-1"}).status_code == 200

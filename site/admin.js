@@ -49,6 +49,7 @@ async function loadStats() {
     for (const value of [
       client.name,
       formatPhone(client.phone),
+      client.email || "—",
       LANGUAGE_NAMES[client.language] || client.language,
       client.groups,
       client.created.split("-").reverse().join("."), // 2026-11-02 → 02.11.2026

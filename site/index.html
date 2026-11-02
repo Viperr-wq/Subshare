@@ -63,7 +63,7 @@
               </button>
               <a class="btn btn-outline" href="#download" data-t>Скачать приложение</a>
             </div>
-            <p class="note" data-t>Регистрация за минуту — через Telegram, без паролей и SMS</p>
+            <p class="note" data-t>Регистрация за минуту — через Telegram или по почте</p>
           </div>
 
           <!-- Картинка «телефон с приложением», нарисованная на HTML и CSS -->
@@ -209,10 +209,10 @@
             </p>
           </details>
           <details>
-            <summary data-t>Почему вход через Telegram?</summary>
+            <summary data-t>Как зарегистрироваться?</summary>
             <p data-t>
-              Telegram сам подтверждает ваш номер, поэтому не нужны ни пароль, ни SMS. Через него же бот
-              присылает напоминания об оплате.
+              Через Telegram: он сам подтвердит ваш номер, пароль не нужен, а бот будет напоминать об оплате.
+              Или по почте: придёт письмо с кодом, а входить вы будете по почте и паролю.
             </p>
           </details>
           <details>
@@ -253,6 +253,57 @@
     <dialog class="dialog" id="login">
       <button type="button" class="close" data-close aria-label="Закрыть">✕</button>
       <span class="logo logo-big" aria-hidden="true">S</span>
+
+      <div data-step="choose">
+        <h2 data-t>Аккаунт SubShare</h2>
+        <p data-t>Как удобнее зарегистрироваться?</p>
+        <button type="button" class="btn btn-primary btn-wide" id="choose-telegram" data-t>Через Telegram</button>
+        <button type="button" class="btn btn-light btn-wide" id="choose-email" data-t>По почте</button>
+        <p class="hint">
+          <span data-t>Уже зарегистрированы по почте?</span>
+          <a data-app="email" href="/app/email" data-t>Войти</a>
+        </p>
+      </div>
+
+      <!-- Регистрация по почте: данные → код из письма (см. script.js) -->
+      <form data-step="email" id="email-form" novalidate>
+        <h2 data-t>Регистрация по почте</h2>
+        <label class="field">
+          <span data-t>Имя</span>
+          <input name="name" autocomplete="name" maxlength="100" />
+        </label>
+        <label class="field">
+          <span data-t>Почта</span>
+          <input name="email" type="email" autocomplete="email" maxlength="254" placeholder="name@example.com" />
+        </label>
+        <label class="field">
+          <span data-t>Номер телефона</span>
+          <input name="phone" type="tel" autocomplete="tel" placeholder="+7 701 234 56 78" />
+          <small data-t>По этому номеру друзья добавят вас в группу</small>
+        </label>
+        <label class="field">
+          <span data-t>Придумайте пароль</span>
+          <input name="password" type="password" autocomplete="new-password" maxlength="128" />
+          <small data-t>Не короче 8 символов</small>
+        </label>
+        <p class="form-error" id="email-error" hidden></p>
+        <button type="submit" class="btn btn-primary btn-wide" data-t>Получить код</button>
+        <p class="consent">
+          <span data-t>Продолжая, вы принимаете документы SubShare:</span>
+          <a data-app="terms" href="/app/terms" target="_blank" data-t>Условия использования</a> ·
+          <a data-app="privacy" href="/app/privacy" target="_blank" data-t>Политика конфиденциальности</a>
+        </p>
+      </form>
+
+      <form data-step="code" id="code-form" novalidate>
+        <h2 data-t>Код из письма</h2>
+        <p id="code-sent"></p>
+        <input class="code-input" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" aria-label="Код" />
+        <p class="form-error" id="code-error" hidden></p>
+        <button type="submit" class="btn btn-primary btn-wide" data-t>Подтвердить</button>
+        <button type="button" class="link" id="code-resend" data-t>Отправить код ещё раз</button>
+        <button type="button" class="link" id="code-back" data-t>Изменить данные</button>
+      </form>
 
       <div data-step="loading">
         <h2 data-t>Аккаунт SubShare</h2>

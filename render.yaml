@@ -27,6 +27,10 @@ services:
         generateValue: true # Render сам придумает секрет; его же вписать в cron-job.org (DEPLOY.md)
       - key: ADMIN_PHONES
         sync: false # номера команды через запятую: им видна статистика (адрес /admin.html на сайте)
+      - key: MAIL_SCRIPT_URL
+        sync: false # адрес скрипта Google, который отправляет письма с кодами (DEPLOY.md, шаг 2а)
+      - key: MAIL_SECRET
+        sync: false # общий секрет с этим скриптом — секрет
 
   # ---------- Сайт + веб-версия мобильного приложения (Expo) ----------
   # На главной — сайт из папки site/, по адресу /app — приложение. Адрес у них общий,

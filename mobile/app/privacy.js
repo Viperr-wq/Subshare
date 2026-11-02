@@ -11,7 +11,7 @@ const TEXT = {
     sections: [
       [
         "Какие данные мы храним",
-        "Имя и номер телефона из вашего Telegram (вы сами делитесь ими при входе), id в Telegram и выбранный язык; ваши группы, доли, счета и отметки об оплате; имена и номера людей, которых вы добавляете в группы.",
+        "Имя и номер телефона из вашего Telegram (вы сами делитесь ими при входе) и id в Telegram — или, если вы регистрируетесь по почте, имя, номер, адрес почты и пароль (храним только его хеш — по нему пароль не узнать); выбранный язык; ваши группы, доли, счета и отметки об оплате; имена и номера людей, которых вы добавляете в группы.",
       ],
       [
         "Зачем",
@@ -27,7 +27,7 @@ const TEXT = {
       ],
       [
         "Где хранятся данные",
-        "На серверах хостинга Render и базы данных Neon в Германии (Франкфурт). Сообщения бота отправляются через Telegram. Деньги через SubShare не проходят, данные банковских карт мы не получаем.",
+        "На серверах хостинга Render и базы данных Neon в Германии (Франкфурт). Сообщения бота отправляются через Telegram, письма с кодами — через Gmail (Google). Деньги через SubShare не проходят, данные банковских карт мы не получаем.",
       ],
       [
         "Как удалить данные",
@@ -46,7 +46,7 @@ const TEXT = {
     sections: [
       [
         "Қандай деректерді сақтаймыз",
-        "Telegram-дағы атыңыз бен телефон нөміріңіз (кіру кезінде өзіңіз бөлісесіз), Telegram id және таңдалған тіл; топтарыңыз, үлестеріңіз, шоттарыңыз және төлем белгілері; топқа қосқан адамдардың аттары мен нөмірлері.",
+        "Telegram-дағы атыңыз бен телефон нөміріңіз (кіру кезінде өзіңіз бөлісесіз) және Telegram id — немесе пошта арқылы тіркелсеңіз, атыңыз, нөміріңіз, пошта мекенжайыңыз және құпиясөзіңіз (тек оның хешін сақтаймыз — одан құпиясөзді білу мүмкін емес); таңдалған тіл; топтарыңыз, үлестеріңіз, шоттарыңыз және төлем белгілері; топқа қосқан адамдардың аттары мен нөмірлері.",
       ],
       [
         "Не үшін",
@@ -62,7 +62,7 @@ const TEXT = {
       ],
       [
         "Деректер қайда сақталады",
-        "Render хостингі мен Neon дерекқорының Германиядағы (Франкфурт) серверлерінде. Бот хабарламалары Telegram арқылы жіберіледі. Ақша SubShare арқылы өтпейді, банк карталарының деректерін алмаймыз.",
+        "Render хостингі мен Neon дерекқорының Германиядағы (Франкфурт) серверлерінде. Бот хабарламалары Telegram арқылы, кодтары бар хаттар Gmail (Google) арқылы жіберіледі. Ақша SubShare арқылы өтпейді, банк карталарының деректерін алмаймыз.",
       ],
       [
         "Деректерді қалай өшіруге болады",
@@ -81,7 +81,7 @@ const TEXT = {
     sections: [
       [
         "What we store",
-        "Your name and phone number from Telegram (you share them yourself when signing in), your Telegram id and chosen language; your groups, shares, bills and payment marks; names and numbers of the people you add to groups.",
+        "Your name and phone number from Telegram (you share them yourself when signing in) and your Telegram id — or, if you sign up with email, your name, number, email address and password (we only store its hash, which can't be turned back into the password); your chosen language; your groups, shares, bills and payment marks; names and numbers of the people you add to groups.",
       ],
       [
         "Why",
@@ -97,7 +97,7 @@ const TEXT = {
       ],
       [
         "Where data is stored",
-        "On Render hosting and Neon database servers in Germany (Frankfurt). Bot messages are sent via Telegram. Money doesn't go through SubShare, and we never receive bank card details.",
+        "On Render hosting and Neon database servers in Germany (Frankfurt). Bot messages are sent via Telegram, and emails with codes via Gmail (Google). Money doesn't go through SubShare, and we never receive bank card details.",
       ],
       [
         "How to delete your data",

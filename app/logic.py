@@ -32,6 +32,16 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def normalize_email(raw: str) -> str:
+    """Почта в одном виде: без пробелов по краям и маленькими буквами («Aru@Mail.KZ» → «aru@mail.kz»)."""
+    return raw.strip().lower()
+
+
+def new_email_code() -> str:
+    """Код для письма: 6 случайных цифр, например «042917»."""
+    return f"{secrets.randbelow(10**6):06d}"
+
+
 def normalize_phone(raw: str) -> str | None:
     """
     Номер в формат +7XXXXXXXXXX. Telegram присылает его по-разному: «77011234567»,

@@ -143,7 +143,8 @@ let step = null; // loading | waiting | done | error
 let attempt = 0; // номер попытки входа: ответы на старые попытки не нужны
 
 function openLogin() {
-  if (step !== "waiting") startLogin(); // ждём бота — показываем ту же ссылку
+  // Ждём бота или вводят почту — продолжаем с того же места. Иначе — выбор способа
+  if (!["waiting", "email", "code"].includes(step)) showStep("choose");
   dialog.showModal();
 }
 
@@ -233,6 +234,114 @@ if (dialog) {
   });
   // Ссылка …/#login сразу открывает окно входа (на неё ведёт страница статистики)
   if (location.hash === "#login" && !getSession()) openLogin();
+}
+
+// ---------- Регистрация по почте ----------
+// Как в приложении (mobile/app/email.js): данные → сервер присылает на почту код →
+// человек вводит код → аккаунт готов. Вход по почте и смена пароля — в приложении (/app/email).
+
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/; // как на сервере (app/schemas.py)
+const emailForm = document.getElementById("email-form");
+const codeForm = document.getElementById("code-form");
+let registration = null; // данные формы: с ними же просим код ещё раз
+
+// «8 701 234 56 78», «+7 (701) 234-56-78» → «+77012345678». Не номер +7 — null
+function normalizePhone(text) {
+  let digits = String(text).replace(/\D/g, "");
+  if (digits.length === 11 && (digits[0] === "7" || digits[0] === "8")) digits = digits.slice(1);
+  return digits.length === 10 ? `+7${digits}` : null;
+}
+
+function showFormError(id, message) {
+  const element = document.getElementById(id);
+  element.textContent = message || "";
+  element.hidden = !message;
+}
+
+// Пока ждём сервер, кнопка неактивна — чтобы не отправить форму дважды
+async function whileBusy(button, action) {
+  button.disabled = true;
+  try {
+    await action();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// Просит сервер прислать код на почту из registration. Ошибку показывает в errorId
+async function sendCode(errorId) {
+  showFormError(errorId, null);
+  try {
+    await api("POST", "/register/email", registration);
+    return true;
+  } catch (e) {
+    showFormError(errorId, e.message);
+    return false;
+  }
+}
+
+if (emailForm) {
+  document.getElementById("choose-telegram").addEventListener("click", startLogin);
+  document.getElementById("choose-email").addEventListener("click", () => {
+    showStep("email");
+    emailForm.querySelector("input").focus();
+  });
+
+  emailForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = new FormData(emailForm);
+    const data = {
+      name: form.get("name").trim(),
+      email: form.get("email").trim(),
+      phone: normalizePhone(form.get("phone")),
+      password: form.get("password"),
+    };
+    let problem = null;
+    if (!data.name) problem = t("Введите имя");
+    else if (!EMAIL_PATTERN.test(data.email)) problem = t("Проверьте адрес почты");
+    else if (!data.phone) problem = t("Номер — 10 цифр после +7");
+    else if (data.password.length < 8) problem = t("Пароль — не короче 8 символов");
+    if (problem) {
+      showFormError("email-error", problem);
+      return;
+    }
+    whileBusy(event.submitter || emailForm.querySelector("[type=submit]"), async () => {
+      registration = data;
+      if (!(await sendCode("email-error"))) return;
+      const sent = t("Мы отправили код на {email}. Если письма нет, проверьте папку «Спам».", { email: data.email });
+      document.getElementById("code-sent").textContent = sent;
+      codeForm.reset();
+      showFormError("code-error", null);
+      showStep("code");
+      codeForm.querySelector("input").focus();
+    });
+  });
+
+  codeForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const code = new FormData(codeForm).get("code").replace(/\D/g, "");
+    if (code.length !== 6) {
+      showFormError("code-error", t("Введите 6 цифр из письма"));
+      return;
+    }
+    whileBusy(event.submitter || codeForm.querySelector("[type=submit]"), async () => {
+      try {
+        finishLogin(await api("POST", "/register/email/confirm", { email: registration.email, code }));
+      } catch (e) {
+        showFormError("code-error", e.message);
+      }
+    });
+  });
+
+  const resend = document.getElementById("code-resend");
+  resend.addEventListener("click", () =>
+    whileBusy(resend, async () => {
+      if (!(await sendCode("code-error"))) return;
+      const sent = t("Отправили новый код на {email}. Если письма нет, проверьте папку «Спам».", { email: registration.email });
+      document.getElementById("code-sent").textContent = sent;
+    })
+  );
+  document.getElementById("code-back").addEventListener("click", () => showStep("email"));
 }
 
 setLanguage(language);

@@ -6,6 +6,7 @@
     users                 — пользователи
     tokens                — ключи входа: выдаются при каждом входе
     login_requests        — входы через Telegram, которые ещё ждут подтверждения номера
+    email_codes           — коды из писем: подтверждение почты и смена пароля
     subscription_groups   — группы подписок (например, «Netflix с друзьями»)
     memberships           — кто в какой группе состоит
     payments              — начисления: кто, сколько и за какой месяц должен заплатить
@@ -38,8 +39,10 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
     phone: Mapped[str] = mapped_column(String(20), unique=True)  # +7XXXXXXXXXX
-    # Пароль есть только у демо-пользователей из seed.py (хранится хешем, см. hash_password).
-    # Все остальные входят через Telegram.
+    # Почта — у тех, кто зарегистрировался по почте (хранится маленькими буквами)
+    email: Mapped[str | None] = mapped_column(String(254), unique=True, default=None)
+    # Пароль — у тех, кто зарегистрировался по почте, и у демо-пользователей из seed.py
+    # (хранится хешем, см. hash_password). Остальные входят через Telegram.
     password_hash: Mapped[str | None] = mapped_column(String(200), default=None)
     # id в Telegram: по нему бот пишет напоминания. None — человек ещё ни разу не входил
     # (например, его только добавили в группу по номеру). BigInteger: id бывают больше 2 млрд.
@@ -79,6 +82,26 @@ class LoginRequest(Base):
     # Кто вошёл — заполняется, когда номер подтверждён
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), default=None)
     expires_at: Mapped[datetime]  # время UTC, после него код не действует
+
+
+class EmailCode(Base):
+    """
+    Код из письма: подтверждение почты при регистрации или смена забытого пароля.
+    Данные регистрации ждут здесь: аккаунт появится, только когда человек введёт код.
+    """
+
+    __tablename__ = "email_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), index=True)
+    purpose: Mapped[str] = mapped_column(String(10))  # "register" или "reset" (смена пароля)
+    code_hash: Mapped[str] = mapped_column(String(64))  # хеш кода, как у ключей входа
+    attempts: Mapped[int] = mapped_column(default=0)  # сколько раз ввели неверный код
+    expires_at: Mapped[datetime]  # время UTC, после него код не действует
+    # Только для регистрации: из этого создадим аккаунт
+    name: Mapped[str | None] = mapped_column(String(100), default=None)
+    phone: Mapped[str | None] = mapped_column(String(20), default=None)
+    password_hash: Mapped[str | None] = mapped_column(String(200), default=None)
 
 
 class SubscriptionGroup(Base):

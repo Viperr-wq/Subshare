@@ -16,7 +16,6 @@ const TRANSLATIONS = {
   ],
   "Создать аккаунт": ["Аккаунт ашу", "Create an account"],
   "Скачать приложение": ["Қосымшаны жүктеу", "Download the app"],
-  "Регистрация за минуту — через Telegram, без паролей и SMS": ["Бір минутта тіркелу — Telegram арқылы, құпиясөз бен SMS-сіз", "Sign up in a minute with Telegram — no passwords or SMS"],
 
   // Картинка с телефоном
   "Netflix вскладчину": ["Netflix бірге", "Shared Netflix"],
@@ -96,11 +95,6 @@ const TRANSLATIONS = {
     "Жоқ. Қатысушылар өз үлесін топ иесіне тікелей аударады — Kaspi немесе кез келген банк арқылы телефон нөмірі бойынша. SubShare-де аударым тек белгіленеді.",
     "No. Members send their share directly to the group owner — via Kaspi or any bank by phone number. SubShare only records the transfer.",
   ],
-  "Почему вход через Telegram?": ["Неге Telegram арқылы кіреміз?", "Why sign in with Telegram?"],
-  "Telegram сам подтверждает ваш номер, поэтому не нужны ни пароль, ни SMS. Через него же бот присылает напоминания об оплате.": [
-    "Telegram нөміріңізді өзі растайды, сондықтан құпиясөз де, SMS те керек емес. Бот төлем туралы еске салуларды да сол арқылы жібереді.",
-    "Telegram confirms your number itself, so you need neither a password nor an SMS. The bot also sends payment reminders there.",
-  ],
   "Друзьям тоже нужно регистрироваться?": ["Достарға да тіркелу керек пе?", "Do my friends need to sign up too?"],
   "Добавить друга в группу можно по номеру сразу. Чтобы видеть свои счета и отмечать переводы, он входит в SubShare с этим номером — и группа уже будет у него.": [
     "Досыңызды топқа нөмірі бойынша бірден қосуға болады. Өз шоттарын көріп, аударымдарды белгілеу үшін ол SubShare-ге осы нөмірмен кіреді — топ оның өзінде болады.",
@@ -154,4 +148,32 @@ const TRANSLATIONS = {
     "Can't reach the server. Check your internet and try again.",
   ],
   "Что-то пошло не так. Попробуйте ещё раз.": ["Бірдеңе дұрыс болмады. Қайталап көріңіз.", "Something went wrong. Please try again."],
+
+  // Регистрация по почте
+  "Как удобнее зарегистрироваться?": ["Қалай тіркелген ыңғайлы?", "How would you like to sign up?"],
+  "Через Telegram": ["Telegram арқылы", "With Telegram"],
+  "По почте": ["Пошта арқылы", "With email"],
+  "Уже зарегистрированы по почте?": ["Пошта арқылы тіркелгенсіз бе?", "Already signed up with email?"],
+  "Регистрация по почте": ["Пошта арқылы тіркелу", "Sign up with email"],
+  "Имя": ["Аты", "Name"],
+  "Почта": ["Пошта", "Email"],
+  "Номер телефона": ["Телефон нөмірі", "Phone number"],
+  "По этому номеру друзья добавят вас в группу": ["Достарыңыз сізді топқа осы нөмір бойынша қосады", "Friends will add you to groups by this number"],
+  "Придумайте пароль": ["Құпиясөз ойлап табыңыз", "Create a password"],
+  "Не короче 8 символов": ["Кемінде 8 таңба", "At least 8 characters"],
+  "Получить код": ["Код алу", "Get a code"],
+  "Код из письма": ["Хаттағы код", "Code from the email"],
+  "Подтвердить": ["Растау", "Confirm"],
+  "Отправить код ещё раз": ["Кодты қайта жіберу", "Send the code again"],
+  "Изменить данные": ["Деректерді өзгерту", "Change details"],
+  "Введите имя": ["Атыңызды енгізіңіз", "Enter your name"],
+  "Проверьте адрес почты": ["Пошта мекенжайын тексеріңіз", "Check the email address"],
+  "Номер — 10 цифр после +7": ["Нөмір — +7-ден кейін 10 цифр", "The number is 10 digits after +7"],
+  "Пароль — не короче 8 символов": ["Құпиясөз — кемінде 8 таңба", "The password must be at least 8 characters"],
+  "Введите 6 цифр из письма": ["Хаттағы 6 цифрды енгізіңіз", "Enter the 6 digits from the email"],
+  "Мы отправили код на {email}. Если письма нет, проверьте папку «Спам».": ["Кодты {email} поштасына жібердік. Хат келмесе, «Спам» қалтасын тексеріңіз.", "We've sent a code to {email}. If you can't find it, check your spam folder."],
+  "Отправили новый код на {email}. Если письма нет, проверьте папку «Спам».": ["Жаңа кодты {email} поштасына жібердік. Хат келмесе, «Спам» қалтасын тексеріңіз.", "We've sent a new code to {email}. If you can't find it, check your spam folder."],
+  "Регистрация за минуту — через Telegram или по почте": ["Бір минутта тіркелу — Telegram немесе пошта арқылы", "Sign up in a minute — with Telegram or email"],
+  "Как зарегистрироваться?": ["Қалай тіркелуге болады?", "How do I sign up?"],
+  "Через Telegram: он сам подтвердит ваш номер, пароль не нужен, а бот будет напоминать об оплате. Или по почте: придёт письмо с кодом, а входить вы будете по почте и паролю.": ["Telegram арқылы: ол нөміріңізді өзі растайды, құпиясөз керек емес, ал бот төлем туралы еске салып отырады. Немесе пошта арқылы: кодпен хат келеді, ал кейін пошта мен құпиясөз арқылы кіресіз.", "With Telegram: it confirms your number itself, no password needed, and the bot will remind you about payments. Or with email: you'll get a code by email and then sign in with your email and password."],
 };

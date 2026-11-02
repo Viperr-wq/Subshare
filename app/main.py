@@ -22,7 +22,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import models, schemas, telegram
+from . import mail, models, schemas, telegram
 from .database import Base, engine, get_db
 from .i18n import LANGUAGES, current_language, pick_language, tr
 from .logic import (
@@ -30,9 +30,12 @@ from .logic import (
     check_password,
     due_date_for,
     format_tenge,
+    hash_password,
     hash_token,
     is_valid_period,
+    new_email_code,
     new_token,
+    normalize_email,
     normalize_phone,
     split_price,
     today_kz,
@@ -45,6 +48,10 @@ APP_URL = os.getenv("APP_URL", "https://subshare-kz.onrender.com")
 CRON_SECRET = os.getenv("CRON_SECRET", "")
 # Сколько действует ссылка для входа через Telegram
 LOGIN_CODE_TTL = timedelta(minutes=10)
+# Код из письма: сколько действует, как часто можно просить новый и сколько раз можно ошибиться
+EMAIL_CODE_TTL = timedelta(minutes=15)
+EMAIL_RESEND_AFTER = timedelta(minutes=1)
+EMAIL_CODE_ATTEMPTS = 5
 # Номера команды SubShare через запятую: им доступна статистика (GET /admin/stats,
 # страница admin.html на сайте). На Render задаётся в Environment. Не задано — не видит никто
 ADMIN_PHONES = {
@@ -189,6 +196,139 @@ def check_owner(group: models.SubscriptionGroup, user: models.User) -> None:
 
 def find_user_by_phone(db: Session, phone: str) -> models.User | None:
     return db.scalar(select(models.User).where(models.User.phone == phone))
+
+
+def find_user_by_email(db: Session, email: str) -> models.User | None:
+    return db.scalar(select(models.User).where(models.User.email == email))
+
+
+def check_email_and_phone_free(db: Session, email: str, phone: str) -> None:
+    """Регистрация по почте: почта и номер ещё не заняты. Иначе — 409."""
+    if find_user_by_email(db, email):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            tr(
+                "Эта почта уже зарегистрирована — войдите",
+                "Бұл пошта тіркелген — кіріңіз",
+                "This email is already registered — please sign in",
+            ),
+        )
+    # Номер при регистрации по почте не проверяется. Если бы мы принимали занятый номер,
+    # любой мог бы ввести чужой и получить чужие группы. Номер подтверждает только Telegram
+    if find_user_by_phone(db, phone):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            tr(
+                "Этот номер уже есть в SubShare — войдите через Telegram",
+                "Бұл нөмір SubShare-де бар — Telegram арқылы кіріңіз",
+                "This number is already in SubShare — please sign in with Telegram",
+            ),
+        )
+
+
+def send_email_code(db: Session, email: str, purpose: str, **registration) -> schemas.EmailCodeOut:
+    """
+    Присылает на почту код из 6 цифр. purpose — "register" (подтвердить почту) или "reset"
+    (сменить пароль). registration — имя, номер и хеш пароля: из них потом создадим аккаунт.
+    """
+    latest = db.scalar(
+        select(models.EmailCode)
+        .where(models.EmailCode.email == email, models.EmailCode.purpose == purpose)
+        .order_by(models.EmailCode.id.desc())
+    )
+    # Новый код — не чаще раза в минуту: бесплатно можно отправить только 300 писем в день
+    if latest and latest.expires_at - EMAIL_CODE_TTL + EMAIL_RESEND_AFTER > utcnow():
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            tr(
+                "Письмо уже отправлено — новый код можно запросить через минуту",
+                "Хат жіберілді — жаңа кодты бір минуттан кейін сұрауға болады",
+                "We've just sent you an email — you can request a new code in a minute",
+            ),
+        )
+    # Прежний код этой почты больше не нужен, а заодно убираем все устаревшие
+    db.execute(
+        delete(models.EmailCode).where(
+            models.EmailCode.email == email, models.EmailCode.purpose == purpose
+        )
+    )
+    db.execute(delete(models.EmailCode).where(models.EmailCode.expires_at < utcnow()))
+    code = new_email_code()
+    db.add(
+        models.EmailCode(
+            email=email,
+            purpose=purpose,
+            code_hash=hash_token(code),
+            expires_at=utcnow() + EMAIL_CODE_TTL,
+            **registration,
+        )
+    )
+    if purpose == "register":
+        text = tr(
+            f"Ваш код для регистрации в SubShare: {code}\n\nОн действует 15 минут. "
+            "Если вы не регистрировались в SubShare, просто не обращайте внимания на это письмо.",
+            f"SubShare-ге тіркелу коды: {code}\n\nОл 15 минут жарамды. "
+            "Егер сіз SubShare-ге тіркелмеген болсаңыз, бұл хатқа мән бермеңіз.",
+            f"Your SubShare sign-up code: {code}\n\nIt is valid for 15 minutes. "
+            "If you didn't sign up for SubShare, just ignore this email.",
+        )
+    else:
+        text = tr(
+            f"Код для смены пароля в SubShare: {code}\n\nОн действует 15 минут. Если вы не просили "
+            "сменить пароль, не обращайте внимания на это письмо — пароль останется прежним.",
+            f"SubShare-де құпиясөзді ауыстыру коды: {code}\n\nОл 15 минут жарамды. Егер құпиясөзді "
+            "ауыстыруды сұрамаған болсаңыз, бұл хатқа мән бермеңіз — құпиясөз өзгермейді.",
+            f"Your SubShare password reset code: {code}\n\nIt is valid for 15 minutes. If you didn't "
+            "ask to reset your password, ignore this email — your password will stay the same.",
+        )
+    subject = tr(f"Код SubShare: {code}", f"SubShare коды: {code}", f"SubShare code: {code}")
+    if not mail.send(email, subject, text):
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            tr(
+                "Не получилось отправить письмо — попробуйте позже",
+                "Хат жіберілмеді — кейінірек қайталап көріңіз",
+                "Couldn't send the email — please try again later",
+            ),
+        )
+    db.commit()
+    return schemas.EmailCodeOut(expires_in=int(EMAIL_CODE_TTL.total_seconds()))
+
+
+def check_email_code(db: Session, email: str, purpose: str, code: str) -> models.EmailCode:
+    """Проверяет код из письма. Кода нет или он устарел — 410, неверный — 400."""
+    request = db.scalar(
+        select(models.EmailCode)
+        .where(models.EmailCode.email == email, models.EmailCode.purpose == purpose)
+        .where(models.EmailCode.expires_at >= utcnow())
+    )
+    if request is None:
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            tr(
+                "Код устарел — запросите новый",
+                "Кодтың мерзімі өтті — жаңасын сұраңыз",
+                "The code has expired — please request a new one",
+            ),
+        )
+    if not hmac.compare_digest(request.code_hash, hash_token(code)):
+        # Ошибиться можно только несколько раз — иначе 6 цифр можно было бы подобрать перебором
+        request.attempts += 1
+        if request.attempts >= EMAIL_CODE_ATTEMPTS:
+            db.delete(request)
+            db.commit()
+            raise HTTPException(
+                status.HTTP_410_GONE,
+                tr(
+                    "Слишком много неверных попыток — запросите новый код",
+                    "Қате әрекеттер тым көп — жаңа код сұраңыз",
+                    "Too many wrong attempts — please request a new code",
+                ),
+            )
+        db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, tr("Неверный код", "Код қате", "Wrong code"))
+    return request
 
 
 def find_login_request(db: Session, code: str) -> models.LoginRequest | None:
@@ -661,6 +801,118 @@ def login(data: schemas.LoginIn, db: Session = Depends(get_db)):
 
 
 @app.post(
+    "/register/email",
+    response_model=schemas.EmailCodeOut,
+    tags=["Вход"],
+    summary="Регистрация по почте: прислать код",
+    description=(
+        "Проверяет, что почта и номер свободны, и присылает на почту код из 6 цифр. "
+        "Аккаунт появится после POST /register/email/confirm. Новый код — не чаще раза в минуту (429)."
+    ),
+)
+def email_register_start(data: schemas.EmailRegisterIn, db: Session = Depends(get_db)):
+    email = normalize_email(data.email)
+    check_email_and_phone_free(db, email, data.phone)
+    return send_email_code(
+        db,
+        email,
+        "register",
+        name=data.name,
+        phone=data.phone,
+        password_hash=hash_password(data.password),
+    )
+
+
+@app.post(
+    "/register/email/confirm",
+    response_model=schemas.AuthOut,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Вход"],
+    summary="Регистрация по почте: ввести код",
+    description="Код верный — создаёт аккаунт и выдаёт ключ входа. Неверный — 400, устарел — 410.",
+)
+def email_register_confirm(data: schemas.EmailCodeIn, db: Session = Depends(get_db)):
+    email = normalize_email(data.email)
+    request = check_email_code(db, email, "register", data.code)
+    # Пока человек ждал письмо, почту или номер мог занять кто-то другой
+    check_email_and_phone_free(db, email, request.phone)
+    user = models.User(
+        name=request.name,
+        phone=request.phone,
+        email=email,
+        password_hash=request.password_hash,
+        language=current_language.get(),
+    )
+    db.add(user)
+    db.delete(request)
+    db.flush()  # чтобы у пользователя появился id
+    return issue_token(db, user)
+
+
+@app.post(
+    "/login/email",
+    response_model=schemas.AuthOut,
+    tags=["Вход"],
+    summary="Войти по почте и паролю",
+    description="Для тех, кто зарегистрировался по почте. Каждый вход выдаёт новый ключ.",
+)
+def email_login(data: schemas.EmailLoginIn, db: Session = Depends(get_db)):
+    user = find_user_by_email(db, normalize_email(data.email))
+    if user is None or user.password_hash is None or not check_password(
+        data.password, user.password_hash
+    ):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            tr("Неверная почта или пароль", "Пошта немесе құпиясөз қате", "Wrong email or password"),
+        )
+    return issue_token(db, user)
+
+
+def no_account_with_email() -> HTTPException:
+    return HTTPException(
+        status.HTTP_404_NOT_FOUND,
+        tr("Аккаунта с такой почтой нет", "Мұндай поштамен аккаунт жоқ", "There's no account with this email"),
+    )
+
+
+@app.post(
+    "/password/forgot",
+    response_model=schemas.EmailCodeOut,
+    tags=["Вход"],
+    summary="Забыли пароль: прислать код на почту",
+    description="Новый код — не чаще раза в минуту (429). Пароль меняется в POST /password/reset.",
+)
+def password_forgot(data: schemas.EmailIn, db: Session = Depends(get_db)):
+    email = normalize_email(data.email)
+    if find_user_by_email(db, email) is None:
+        raise no_account_with_email()
+    return send_email_code(db, email, "reset")
+
+
+@app.post(
+    "/password/reset",
+    response_model=schemas.AuthOut,
+    tags=["Вход"],
+    summary="Забыли пароль: ввести код и новый пароль",
+    description=(
+        "Код верный — меняет пароль, завершает вход на всех устройствах (старый пароль мог "
+        "узнать кто-то чужой) и выдаёт новый ключ входа."
+    ),
+)
+def password_reset(data: schemas.PasswordResetIn, db: Session = Depends(get_db)):
+    email = normalize_email(data.email)
+    request = check_email_code(db, email, "reset", data.code)
+    db.delete(request)
+    user = find_user_by_email(db, email)
+    if user is None:  # аккаунт успели удалить, пока шло письмо
+        db.commit()
+        raise no_account_with_email()
+    user.password_hash = hash_password(data.password)
+    db.execute(delete(models.Token).where(models.Token.user_id == user.id))
+    return issue_token(db, user)
+
+
+@app.post(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["Вход"],
@@ -717,6 +969,8 @@ def delete_me(user: models.User = Depends(get_current_user), db: Session = Depen
     db.flush()
     for table in (models.Payment, models.Membership, models.Token, models.LoginRequest):
         db.execute(delete(table).where(table.user_id == user.id))
+    if user.email:
+        db.execute(delete(models.EmailCode).where(models.EmailCode.email == user.email))
     db.execute(delete(models.User).where(models.User.id == user.id))
     db.commit()
 
@@ -1130,6 +1384,7 @@ def admin_stats(user: models.User = Depends(get_current_user), db: Session = Dep
             schemas.ClientOut(
                 name=u.name,
                 phone=u.phone,
+                email=u.email,
                 language=u.language,
                 # В базе время UTC — показываем дату по Казахстану
                 created=u.created_at.replace(tzinfo=timezone.utc).astimezone(KZ_TIMEZONE).date(),

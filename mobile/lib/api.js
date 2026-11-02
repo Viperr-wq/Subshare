@@ -73,6 +73,14 @@ export const api = {
   telegramStart: () => request("POST", "/login/telegram"),
   telegramCheck: (code) => request("POST", "/login/telegram/check", { code }),
   login: (phone, password) => request("POST", "/login", { phone, password }),
+  // По почте: registerEmail({ name, email, phone, password }) → письмо с кодом → confirmEmail.
+  // Забыли пароль: forgotPassword(email) → письмо с кодом → resetPassword. Все возвращают { token, user }
+  registerEmail: (data) => request("POST", "/register/email", data),
+  confirmEmail: (email, code) => request("POST", "/register/email/confirm", { email, code }),
+  loginEmail: (email, password) => request("POST", "/login/email", { email, password }),
+  forgotPassword: (email) => request("POST", "/password/forgot", { email }),
+  resetPassword: (email, code, password) =>
+    request("POST", "/password/reset", { email, code, password }),
   logout: () => request("POST", "/logout"),
 
   // Профиль

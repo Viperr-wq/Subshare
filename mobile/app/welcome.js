@@ -183,7 +183,15 @@ export default function WelcomeScreen() {
                   <Button title={t("Отмена")} variant="ghost" onPress={() => setWaiting(null)} />
                 </>
               ) : (
-                <Button title={t("Войти через Telegram")} icon="paper-plane" onPress={startTelegram} />
+                <>
+                  <Button title={t("Войти через Telegram")} icon="paper-plane" onPress={startTelegram} />
+                  <Button
+                    title={t("Войти по почте")}
+                    variant="secondary"
+                    icon="mail"
+                    onPress={() => router.push("/email")}
+                  />
+                </>
               )}
               <ServerMessage error={error} />
 

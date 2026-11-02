@@ -103,6 +103,7 @@ export default function ProfileScreen() {
           <View style={styles.profileInfo}>
             <Text style={styles.name}>{user.name}</Text>
             <Text style={styles.phone}>{formatPhone(user.phone)}</Text>
+            {user.email ? <Text style={styles.phone}>{user.email}</Text> : null}
           </View>
         </LinearGradient>
       </View>

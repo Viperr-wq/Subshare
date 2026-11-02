@@ -1,6 +1,7 @@
 // Главный «каркас» приложения: шрифты, язык, вход пользователя, окна-подтверждения
 // и список экранов. Каждый файл в папке app/ — это отдельный экран (expo-router):
 //   app/welcome.js           → вход через Telegram
+//   app/email.js             → вход, регистрация и смена пароля по почте
 //   app/(tabs)/...           → вкладки «Подписки», «Платежи», «Профиль»
 //   app/group/new.js         → создание группы
 //   app/group/[id]/index.js  → экран группы (id — номер группы)
@@ -111,6 +112,8 @@ function RootNavigator({ fontsLoaded }) {
         {/* Экран входа — только для тех, кто ещё не вошёл */}
         <Stack.Protected guard={!user}>
           <Stack.Screen name="welcome" options={{ headerShown: false }} />
+          {/* Заголовок шага — на самом экране, поэтому сверху только стрелка «назад» */}
+          <Stack.Screen name="email" options={{ title: "" }} />
         </Stack.Protected>
 
         {/* Документы видны всем: ссылки на них есть и на экране входа */}
