@@ -120,21 +120,16 @@ class EmailCodeOut(BaseModel):
 
 
 class TelegramLoginOut(BaseModel):
-    code: str = Field(description="Секретный код этого входа: с ним приложение спрашивает, готово ли")
+    code: str = Field(description="Секретный код этого входа: с ним приложение потом получит ключ")
     url: str = Field(description="Ссылка на бота — её открывает приложение")
     expires_in: int = Field(description="Сколько секунд действует код")
 
 
 class TelegramCheckIn(BaseModel):
+    """Вход через Telegram: секретный код входа и 6 цифр, которые прислал бот."""
+
     code: str = Field(min_length=1, max_length=100)
-
-
-class TelegramCheckOut(BaseModel):
-    """Пока человек не поделился номером в боте — done=false. Потом — ключ входа."""
-
-    done: bool
-    token: str | None = None
-    user: UserOut | None = None
+    pin: str = Field(pattern=r"^[0-9]{6}$", examples=["123456"])
 
 
 # ---------- Команда SubShare ----------

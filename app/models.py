@@ -70,7 +70,8 @@ class Token(Base):
 class LoginRequest(Base):
     """
     Вход через Telegram. Приложение получает секретный код и открывает бота по ссылке
-    с этим кодом; человек делится в боте своим номером, и вход подтверждается.
+    с этим кодом; человек делится в боте своим номером, бот присылает ему код из 6 цифр,
+    и с этим кодом приложение получает ключ входа.
     """
 
     __tablename__ = "login_requests"
@@ -81,6 +82,10 @@ class LoginRequest(Base):
     telegram_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
     # Кто вошёл — заполняется, когда номер подтверждён
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), default=None)
+    # Хеш кода из 6 цифр, который бот прислал человеку. Без него вход не завершить:
+    # иначе, открыв по чужой ссылке бота и поделившись номером, человек впустил бы в свой аккаунт другого
+    pin_hash: Mapped[str | None] = mapped_column(String(64), default=None)
+    attempts: Mapped[int] = mapped_column(default=0)  # сколько раз ввели неверный код
     expires_at: Mapped[datetime]  # время UTC, после него код не действует
 
 
@@ -164,6 +169,8 @@ class Payment(Base):
     # когда будет подключена платёжная система (Halyk ePay, Freedom Pay и т.п.).
     external_id: Mapped[str | None] = mapped_column(String(100), default=None)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    # Когда бот последний раз напоминал об оплате — чтобы в один день не напомнить дважды
+    reminded_on: Mapped[date | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     group: Mapped["SubscriptionGroup"] = relationship(back_populates="payments")

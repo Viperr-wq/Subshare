@@ -118,16 +118,20 @@ def share_contact(client, telegram_id, phone, name):
     return tg(client, telegram_id, contact=contact)
 
 
+def pin_from(answer):
+    """Код из 6 цифр, который бот прислал в ответ на номер."""
+    return re.search(r"<code>(\d{6})</code>", answer["text"]).group(1)
+
+
 def make_user(client, name, phone):
     """
-    Входит через Telegram, как в приложении: код → бот по ссылке → «Поделиться номером».
-    auth — заголовок с ключом входа для запросов.
+    Входит через Telegram, как в приложении: код → бот по ссылке → «Поделиться номером» →
+    код из бота. auth — заголовок с ключом входа для запросов.
     """
     code = client.post("/login/telegram").json()["code"]
     tg(client, tg_id(phone), text=f"/start {code}")
-    share_contact(client, tg_id(phone), phone, name)
-    data = client.post("/login/telegram/check", json={"code": code}).json()
-    assert data["done"] is True
+    pin = pin_from(share_contact(client, tg_id(phone), phone, name).json())
+    data = client.post("/login/telegram/check", json={"code": code, "pin": pin}).json()
     return {
         "id": data["user"]["id"],
         "phone": phone,
@@ -376,11 +380,8 @@ def test_telegram_login_step_by_step(client, bot):
     start = client.post("/login/telegram").json()
     code = start["code"]
     assert start["url"] == f"https://t.me/SubShareTestBot?start={code}"
-    check = {"code": code}
-    # Человек ещё не открыл бота
-    assert client.post("/login/telegram/check", json=check).json() == {
-        "done": False, "token": None, "user": None
-    }
+    # Человек ещё не поделился номером в боте — кода у него нет
+    assert client.post("/login/telegram/check", json={"code": code, "pin": "123456"}).status_code == 400
 
     # Открыл бота по ссылке — бот просит поделиться номером
     answer = tg(client, 555, text=f"/start {code}").json()
@@ -388,11 +389,10 @@ def test_telegram_login_step_by_step(client, bot):
 
     # Чужой контакт не подходит: номер должен быть свой
     stranger = {"phone_number": "77010000002", "first_name": "Кто-то", "user_id": 777}
-    tg(client, 555, contact=stranger)
-    assert client.post("/login/telegram/check", json=check).json()["done"] is False
+    assert "свой номер" in tg(client, 555, contact=stranger).json()["text"]
 
-    # Свой номер — вход подтверждён, приложение получает ключ
-    assert "Готово" in share_contact(client, 555, "+77010000001", "Аружан").json()["text"]
+    # Свой номер — бот присылает код из 6 цифр, а с ним приложение получает ключ
+    check = {"code": code, "pin": pin_from(share_contact(client, 555, "+77010000001", "Аружан").json())}
     data = client.post("/login/telegram/check", json=check).json()
     assert data["user"] == {
         "id": 1, "name": "Аружан", "phone": "+77010000001", "email": None, "language": "ru"
@@ -402,6 +402,31 @@ def test_telegram_login_step_by_step(client, bot):
 
     # Код одноразовый
     assert client.post("/login/telegram/check", json=check).status_code == 410
+
+
+def test_telegram_login_needs_code_from_bot(client):
+    # Человека попросили открыть бота по чужой ссылке, и он поделился номером. Кто прислал
+    # ссылку, без кода из бота в аккаунт не войдёт: подобрать 6 цифр дают только 5 попыток
+    code = client.post("/login/telegram").json()["code"]
+    tg(client, 555, text=f"/start {code}")
+    pin = pin_from(share_contact(client, 555, "+77010000001", "Аружан").json())
+    wrong = {"code": code, "pin": other_code(pin)}
+    for _ in range(4):
+        assert client.post("/login/telegram/check", json=wrong).status_code == 400
+    assert client.post("/login/telegram/check", json=wrong).status_code == 410
+    assert client.post("/login/telegram/check", json={"code": code, "pin": pin}).status_code == 410
+
+
+def test_telegram_takes_number_from_email_account(client, mails):
+    # По почте номер не проверяется: его мог вписать и чужой. Когда хозяин номера входит
+    # через Telegram, аккаунт достаётся ему: вход по почте отключается, прежние входы завершаются
+    stranger = register_by_email(client, mails, phone="+77010000001", name="Чужой")
+    owner = make_user(client, "Аружан", "+77010000001")
+    assert owner["id"] == stranger["user"]["id"]
+    assert client.get("/me", headers={"Authorization": f"Bearer {stranger['token']}"}).status_code == 401
+    assert client.post("/login/email", json={"email": EMAIL, "password": PASSWORD}).status_code == 401
+    me = client.get("/me", headers=owner["auth"]).json()
+    assert (me["name"], me["email"]) == ("Аружан", None)
 
 
 def test_telegram_login_again_gives_same_account(client, new_session):
@@ -415,7 +440,7 @@ def test_telegram_login_again_gives_same_account(client, new_session):
 def test_telegram_login_code_expires(client, monkeypatch):
     code = client.post("/login/telegram").json()["code"]
     monkeypatch.setattr("app.main.utcnow", lambda: utcnow() + timedelta(minutes=11))
-    assert client.post("/login/telegram/check", json={"code": code}).status_code == 410
+    assert client.post("/login/telegram/check", json={"code": code, "pin": "123456"}).status_code == 410
     assert "устарела" in tg(client, 555, text=f"/start {code}").json()["text"]
 
 
@@ -787,6 +812,8 @@ def test_daily_invoices_and_reminders(client, monkeypatch, bot):
     # За день до срока — напоминание, в день срока — нет
     assert run_daily(client, monkeypatch, date(2026, 11, 4)).json()["reminders"] == 2
     assert "завтра" in texts_to(bot, madina)[-1]
+    # Задачу запустили ещё раз в тот же день — второй раз не напоминаем
+    assert run_daily(client, monkeypatch, date(2026, 11, 4)).json()["reminders"] == 0
     assert run_daily(client, monkeypatch, date(2026, 11, 5)).json()["reminders"] == 0
     # После срока — на 1-й, 4-й, 7-й… день просрочки
     assert run_daily(client, monkeypatch, date(2026, 11, 6)).json()["reminders"] == 2

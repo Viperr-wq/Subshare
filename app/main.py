@@ -11,16 +11,17 @@
 
 import hmac
 import os
+import threading
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from . import mail, models, schemas, telegram
 from .database import Base, engine, get_db
@@ -33,7 +34,7 @@ from .logic import (
     hash_password,
     hash_token,
     is_valid_period,
-    new_email_code,
+    new_digit_code,
     new_token,
     normalize_email,
     normalize_phone,
@@ -48,10 +49,11 @@ APP_URL = os.getenv("APP_URL", "https://subshare-kz.onrender.com")
 CRON_SECRET = os.getenv("CRON_SECRET", "")
 # Сколько действует ссылка для входа через Telegram
 LOGIN_CODE_TTL = timedelta(minutes=10)
-# Код из письма: сколько действует, как часто можно просить новый и сколько раз можно ошибиться
+# Код из письма: сколько действует и как часто можно просить новый
 EMAIL_CODE_TTL = timedelta(minutes=15)
 EMAIL_RESEND_AFTER = timedelta(minutes=1)
-EMAIL_CODE_ATTEMPTS = 5
+# Сколько раз можно ошибиться в коде из 6 цифр (из письма или от бота) — потом код сгорает
+CODE_ATTEMPTS = 5
 # Номера команды SubShare через запятую: им доступна статистика (GET /admin/stats,
 # страница admin.html на сайте). На Render задаётся в Environment. Не задано — не видит никто
 ADMIN_PHONES = {
@@ -62,8 +64,9 @@ ADMIN_PHONES = {
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # При запуске сервера создаём таблицы, если их ещё нет, и подключаем бота.
+    # Бота — в фоне: если Telegram отвечает медленно, сервер всё равно сразу начнёт работать
     Base.metadata.create_all(bind=engine)
-    telegram.setup(os.getenv("RENDER_EXTERNAL_URL"))
+    threading.Thread(target=telegram.setup, args=(os.getenv("RENDER_EXTERNAL_URL"),), daemon=True).start()
     yield
 
 
@@ -253,7 +256,7 @@ def send_email_code(db: Session, email: str, purpose: str, **registration) -> sc
         )
     )
     db.execute(delete(models.EmailCode).where(models.EmailCode.expires_at < utcnow()))
-    code = new_email_code()
+    code = new_digit_code()
     db.add(
         models.EmailCode(
             email=email,
@@ -302,6 +305,9 @@ def check_email_code(db: Session, email: str, purpose: str, code: str) -> models
         select(models.EmailCode)
         .where(models.EmailCode.email == email, models.EmailCode.purpose == purpose)
         .where(models.EmailCode.expires_at >= utcnow())
+        # Пока этот запрос проверяет код, другой с той же почтой ждёт: иначе одновременными
+        # запросами можно было бы перебрать больше кодов, чем разрешено
+        .with_for_update()
     )
     if request is None:
         raise HTTPException(
@@ -315,7 +321,7 @@ def check_email_code(db: Session, email: str, purpose: str, code: str) -> models
     if not hmac.compare_digest(request.code_hash, hash_token(code)):
         # Ошибиться можно только несколько раз — иначе 6 цифр можно было бы подобрать перебором
         request.attempts += 1
-        if request.attempts >= EMAIL_CODE_ATTEMPTS:
+        if request.attempts >= CODE_ATTEMPTS:
             db.delete(request)
             db.commit()
             raise HTTPException(
@@ -332,11 +338,15 @@ def check_email_code(db: Session, email: str, purpose: str, code: str) -> models
 
 
 def find_login_request(db: Session, code: str) -> models.LoginRequest | None:
-    """Вход через Telegram по коду из ссылки. Устаревший код не находим."""
+    """
+    Вход через Telegram по коду из ссылки. Устаревший код не находим. Пока запрос с этим
+    кодом не закончился, другой такой же ждёт (FOR UPDATE): один вход — один ключ.
+    """
     return db.scalar(
         select(models.LoginRequest)
         .where(models.LoginRequest.code_hash == hash_token(code))
         .where(models.LoginRequest.expires_at >= utcnow())
+        .with_for_update()
     )
 
 
@@ -468,8 +478,12 @@ PAYMENT_MESSAGES = {
 }
 
 
-def notify(kind: str, payment: models.Payment) -> bool:
-    """Сообщение в Telegram о платеже: о переводе — владельцу, остальное — плательщику."""
+def notify(tasks: BackgroundTasks, kind: str, payment: models.Payment) -> bool:
+    """
+    Сообщение в Telegram о платеже: о переводе — владельцу, остальное — плательщику.
+    Текст собираем сразу, а отправляет его FastAPI уже после ответа (tasks) —
+    так приложению не нужно ждать Telegram.
+    """
     to = payment.group.owner if kind == "sent" else payment.user
     if not to.telegram_id:
         return False  # человек ещё ни разу не входил через Telegram — писать некуда
@@ -482,7 +496,7 @@ def notify(kind: str, payment: models.Payment) -> bool:
         phone=payment.group.owner.phone,
         name=payment.user.name,
     )
-    telegram.send_message(to.telegram_id, text)
+    tasks.add_task(telegram.send_message, to.telegram_id, text)
     return True
 
 
@@ -557,7 +571,7 @@ def telegram_webhook(
     if not telegram.BOT_TOKEN or not hmac.compare_digest(
         x_telegram_bot_api_secret_token, telegram.webhook_secret()
     ):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Forbidden")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, tr("Нет доступа", "Рұқсат жоқ", "Access denied"))
 
     message = update_data.get("message") or {}
     telegram_id = (message.get("from") or {}).get("id")
@@ -600,12 +614,12 @@ def telegram_webhook(
     db.commit()
     button = tr("📱 Поделиться номером", "📱 Нөмірмен бөлісу", "📱 Share phone number", lang=lang)
     return reply(
-        "Вход в SubShare. Нажмите кнопку ниже, чтобы поделиться номером телефона. "
-        "Если вход начали не вы — ничего не нажимайте.",
-        "SubShare-ге кіру. Телефон нөміріңізбен бөлісу үшін төмендегі батырманы басыңыз. "
-        "Кіруді сіз бастамасаңыз — ештеңе баспаңыз.",
-        "Signing in to SubShare. Tap the button below to share your phone number. "
-        "If you didn't start this, don't tap anything.",
+        "Вход в SubShare. Нажмите кнопку ниже, чтобы поделиться номером телефона, — "
+        "бот пришлёт код для входа. Если вход начали не вы — ничего не нажимайте.",
+        "SubShare-ге кіру. Телефон нөміріңізбен бөлісу үшін төмендегі батырманы басыңыз — "
+        "бот кіру кодын жібереді. Кіруді сіз бастамасаңыз — ештеңе баспаңыз.",
+        "Signing in to SubShare. Tap the button below to share your phone number — "
+        "the bot will send you a sign-in code. If you didn't start this, don't tap anything.",
         {
             "keyboard": [[{"text": button, "request_contact": True}]],
             "resize_keyboard": True,
@@ -650,10 +664,15 @@ def telegram_contact(db: Session, contact: dict, telegram_id: int, lang: str, re
     if user is None:
         user = models.User(phone=phone, name=name, language=lang)
         db.add(user)
-    elif user.telegram_id is None and user.password_hash is None:
-        # Аккаунт создал владелец группы, когда приглашал. Теперь человек вошёл сам —
-        # показываем его собственное имя из Telegram (поменять можно в профиле)
+    elif user.telegram_id is None:
+        # Номер подтверждён впервые. Аккаунт с ним создал владелец группы, когда приглашал,
+        # или кто-то при регистрации по почте — а там номер не проверяется: его мог вписать
+        # и чужой человек. Теперь аккаунт — хозяина номера: имя из Telegram (поменять можно
+        # в профиле), вход по почте отключаем, прежние входы завершаем
         user.name = name
+        user.email = None
+        user.password_hash = None
+        db.execute(delete(models.Token).where(models.Token.user_id == user.id))
     # Этот Telegram мог раньше принадлежать другому номеру (человек сменил номер) — отвязываем
     db.execute(
         update(models.User)
@@ -664,12 +683,21 @@ def telegram_contact(db: Session, contact: dict, telegram_id: int, lang: str, re
     user.telegram_id = telegram_id
     db.flush()  # чтобы у нового пользователя появился id
     request.user_id = user.id
+    # Ключ входа приложение получит только с этим кодом. Если человек открыл бота по чужой
+    # ссылке, код останется у него — и в его аккаунт никто не войдёт
+    pin = new_digit_code()
+    request.pin_hash = hash_token(pin)
     db.commit()
-    return reply(
-        "Готово! Вернитесь в SubShare — вход завершится сам.",
-        "Дайын! SubShare-ге оралыңыз — кіру өздігінен аяқталады.",
-        "Done! Go back to SubShare — you'll be signed in automatically.",
+    answer = reply(
+        f"Код для входа в SubShare: <code>{pin}</code>\n\nВведите его в приложении. "
+        "Никому не сообщайте этот код — даже если просят от имени SubShare.",
+        f"SubShare-ге кіру коды: <code>{pin}</code>\n\nОны қосымшаға енгізіңіз. "
+        "Бұл кодты ешкімге айтпаңыз — тіпті SubShare атынан сұраса да.",
+        f"Your SubShare sign-in code: <code>{pin}</code>\n\nEnter it in the app. "
+        "Don't share this code with anyone, even if they say they're from SubShare.",
     )
+    answer["parse_mode"] = "HTML"  # код моноширинным шрифтом: в Telegram его копируют нажатием
+    return answer
 
 
 @app.post(
@@ -682,36 +710,57 @@ def telegram_contact(db: Session, contact: dict, telegram_id: int, lang: str, re
         "об оплате в Telegram: за день до срока и после срока каждые 3 дня."
     ),
 )
-def daily_tasks(x_cron_secret: str = Header(""), db: Session = Depends(get_db)):
+def daily_tasks(
+    tasks: BackgroundTasks, x_cron_secret: str = Header(""), db: Session = Depends(get_db)
+):
     if not CRON_SECRET or not hmac.compare_digest(x_cron_secret, CRON_SECRET):
         raise HTTPException(status.HTTP_403_FORBIDDEN, tr("Нет доступа", "Рұқсат жоқ", "Access denied"))
     today = today_kz()
     period = today.strftime("%Y-%m")
 
     new_payments = []
-    for group in db.scalars(select(models.SubscriptionGroup)).all():
+    groups = db.scalars(
+        select(models.SubscriptionGroup).options(
+            selectinload(models.SubscriptionGroup.memberships),
+            selectinload(models.SubscriptionGroup.payments),
+        )
+    ).all()
+    for group in groups:
         already = any(p.period == period for p in group.payments)
         # Счета за месяц выставляем один раз и только пока срок оплаты не прошёл:
         # группа, созданная после срока, начнёт получать счета со следующего месяца
         if len(group.memberships) >= 2 and not already and today.day <= group.billing_day:
             new_payments += create_invoices(group, period)
-    db.commit()
-    for payment in new_payments:
-        notify("new", payment)
+    db.flush()  # новые счета — в базу, чтобы они попали в список ниже
 
-    new_ids = {p.id for p in new_payments}
-    reminders = 0
+    # Все неоплаченные счета (и только что выставленные) — сразу с плательщиками и владельцами,
+    # а не отдельным запросом к базе на каждый счёт
     pending = db.scalars(
-        select(models.Payment).where(models.Payment.status == models.PAYMENT_PENDING)
+        select(models.Payment)
+        .where(models.Payment.status == models.PAYMENT_PENDING)
+        .options(
+            selectinload(models.Payment.user),
+            selectinload(models.Payment.group).selectinload(models.SubscriptionGroup.owner),
+        )
     ).all()
+    reminders = 0
     for payment in pending:
         days_left = (payment.due_date - today).days
-        if payment.id in new_ids:
-            continue  # о новом счёте только что написали
-        if days_left == 1:
-            reminders += notify("tomorrow", payment)
+        if payment.reminded_on == today:
+            continue  # сегодня уже писали: например, задачу запустили второй раз
+        if payment in new_payments:
+            kind = "new"
+        elif days_left == 1:
+            kind = "tomorrow"
         elif days_left < 0 and -days_left % 3 == 1:  # на 1-й, 4-й, 7-й… день просрочки
-            reminders += notify("overdue", payment)
+            kind = "overdue"
+        else:
+            continue
+        payment.reminded_on = today
+        sent = notify(tasks, kind, payment)
+        if kind != "new":
+            reminders += sent
+    db.commit()
     return {"invoices": len(new_payments), "reminders": reminders}
 
 
@@ -725,7 +774,8 @@ def daily_tasks(x_cron_secret: str = Header(""), db: Session = Depends(get_db)):
     summary="Начать вход через Telegram",
     description=(
         "Выдаёт секретный код и ссылку на бота. Приложение открывает ссылку, человек "
-        "делится в боте номером, а приложение тем временем спрашивает POST /login/telegram/check."
+        "делится в боте номером, бот присылает ему код из 6 цифр, а приложение отправляет "
+        "этот код в POST /login/telegram/check."
     ),
 )
 def telegram_login_start(db: Session = Depends(get_db)):
@@ -754,10 +804,14 @@ def telegram_login_start(db: Session = Depends(get_db)):
 
 @app.post(
     "/login/telegram/check",
-    response_model=schemas.TelegramCheckOut,
+    response_model=schemas.AuthOut,
     tags=["Вход"],
-    summary="Подтвердил ли человек вход в боте",
-    description="Пока номер не подтверждён — done=false. Потом — ключ входа (код одноразовый).",
+    summary="Вход через Telegram: ввести код из бота",
+    description=(
+        "code — секретный код из POST /login/telegram, pin — 6 цифр, которые бот прислал "
+        "человеку. Верно — ключ входа (код одноразовый). Номер в боте ещё не подтвердили "
+        "или код неверный — 400; вход устарел или 5 неверных попыток — 410."
+    ),
 )
 def telegram_login_check(data: schemas.TelegramCheckIn, db: Session = Depends(get_db)):
     request = find_login_request(db, data.code)
@@ -765,17 +819,39 @@ def telegram_login_check(data: schemas.TelegramCheckIn, db: Session = Depends(ge
         raise HTTPException(
             status.HTTP_410_GONE,
             tr(
-                "Ссылка для входа устарела — начните вход заново",
-                "Кіру сілтемесінің мерзімі өтті — қайта бастаңыз",
-                "The sign-in link has expired — please start again",
+                "Вход устарел — начните заново",
+                "Кіру мерзімі өтті — қайта бастаңыз",
+                "This sign-in has expired — please start again",
             ),
         )
-    if request.user_id is None:
-        return schemas.TelegramCheckOut(done=False)
+    if request.pin_hash is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            tr(
+                "Сначала поделитесь номером в боте — он пришлёт код",
+                "Алдымен боттағы нөміріңізбен бөлісіңіз — ол код жібереді",
+                "First share your phone number in the bot — it will send you the code",
+            ),
+        )
+    if not hmac.compare_digest(request.pin_hash, hash_token(data.pin)):
+        # Ошибиться можно только несколько раз — иначе 6 цифр можно было бы подобрать перебором
+        request.attempts += 1
+        if request.attempts >= CODE_ATTEMPTS:
+            db.delete(request)
+            db.commit()
+            raise HTTPException(
+                status.HTTP_410_GONE,
+                tr(
+                    "Слишком много неверных попыток — начните вход заново",
+                    "Қате әрекеттер тым көп — кіруді қайта бастаңыз",
+                    "Too many wrong attempts — please start signing in again",
+                ),
+            )
+        db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, tr("Неверный код", "Код қате", "Wrong code"))
     user = db.get(models.User, request.user_id)
     db.delete(request)
-    auth = issue_token(db, user)  # здесь же db.commit()
-    return schemas.TelegramCheckOut(done=True, token=auth.token, user=auth.user)
+    return issue_token(db, user)  # здесь же db.commit()
 
 
 @app.post(
@@ -1199,6 +1275,7 @@ def delete_group(
 def create_period_payments(
     group_id: int,
     period: str,
+    tasks: BackgroundTasks,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1215,9 +1292,11 @@ def create_period_payments(
             ),
         )
     new_payments = create_invoices(group, period)
-    db.commit()
+    db.flush()  # новые счета — в базу, чтобы узнать их плательщиков (payment.user)
     for payment in new_payments:
-        notify("new", payment)
+        payment.reminded_on = today_kz()  # о счёте пишем сейчас — сегодня больше не напоминаем
+        notify(tasks, "new", payment)
+    db.commit()
     db.refresh(group)
     return period_status(group_id, period, user, db)
 
@@ -1264,6 +1343,7 @@ def period_status(
 )
 def mark_sent(
     payment_id: int,
+    tasks: BackgroundTasks,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1289,7 +1369,7 @@ def mark_sent(
         )
     payment.status = models.PAYMENT_SENT
     db.commit()
-    notify("sent", payment)
+    notify(tasks, "sent", payment)
     return payment_to_schema(payment)
 
 
@@ -1305,6 +1385,7 @@ def mark_sent(
 )
 def mark_paid(
     payment_id: int,
+    tasks: BackgroundTasks,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1313,9 +1394,9 @@ def mark_paid(
     check_not_paid(payment)
     payment.status = models.PAYMENT_PAID
     payment.method = models.PAYMENT_METHOD_MANUAL
-    payment.paid_at = datetime.now(timezone.utc)
+    payment.paid_at = utcnow()
     db.commit()
-    notify("paid", payment)
+    notify(tasks, "paid", payment)
     return payment_to_schema(payment)
 
 
@@ -1328,6 +1409,7 @@ def mark_paid(
 )
 def mark_not_received(
     payment_id: int,
+    tasks: BackgroundTasks,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1344,7 +1426,7 @@ def mark_not_received(
         )
     payment.status = models.PAYMENT_PENDING
     db.commit()
-    notify("not_received", payment)
+    notify(tasks, "not_received", payment)
     return payment_to_schema(payment)
 
 

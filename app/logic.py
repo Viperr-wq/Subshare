@@ -37,8 +37,8 @@ def normalize_email(raw: str) -> str:
     return raw.strip().lower()
 
 
-def new_email_code() -> str:
-    """Код для письма: 6 случайных цифр, например «042917»."""
+def new_digit_code() -> str:
+    """Код из 6 случайных цифр, например «042917»: его присылают в письме или в боте."""
     return f"{secrets.randbelow(10**6):06d}"
 
 
