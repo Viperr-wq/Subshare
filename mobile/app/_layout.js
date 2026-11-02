@@ -39,9 +39,7 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      {/* Сменили язык — сообщаем серверу: на нём бот пишет напоминания.
-          Если никто не вошёл, сервер просто ответит «войдите» — это не страшно */}
-      <LanguageProvider onChange={(language) => api.updateMe({ language }).catch(() => {})}>
+      <LanguageProvider>
         <WebFrame>
           <DialogProvider>
             <RootNavigator fontsLoaded={fontsLoaded} />
@@ -53,7 +51,7 @@ export default function RootLayout() {
 }
 
 function RootNavigator({ fontsLoaded }) {
-  const { user, ready } = useAuth();
+  const { user, ready, updateUser } = useAuth();
   const { language } = useLanguage();
   const { confirm } = useDialogs();
   const loaded = fontsLoaded && ready;
@@ -62,10 +60,13 @@ function RootNavigator({ fontsLoaded }) {
     if (loaded) SplashScreen.hideAsync();
   }, [loaded]);
 
-  // После входа: язык в аккаунте должен совпадать с языком приложения
+  // Язык в аккаунте должен совпадать с языком приложения: на нём бот пишет напоминания.
+  // Проверяем после входа и при смене языка; пока никто не вошёл, сервер не спрашиваем
   useEffect(() => {
-    if (user && user.language !== language) api.updateMe({ language }).catch(() => {});
-  }, [user?.id]);
+    if (user && user.language !== language) {
+      api.updateMe({ language }).then(updateUser).catch(() => {});
+    }
+  }, [user?.id, language]);
 
   // Вышла новая версия APK — предлагаем скачать (только в Android-приложении)
   useEffect(() => {

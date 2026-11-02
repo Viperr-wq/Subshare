@@ -48,9 +48,9 @@ export function t(text, values) {
 
 const LanguageContext = createContext(null);
 
-// Оборачивает всё приложение. onChange(code) — что ещё сделать при смене языка.
-// При смене языка экраны рисуются заново (key={language}), и все t() отдают новый текст.
-export function LanguageProvider({ children, onChange }) {
+// Оборачивает всё приложение. При смене языка экраны рисуются заново (key={language}),
+// и все t() отдают новый текст. Сервер о новом языке узнаёт в app/_layout.js.
+export function LanguageProvider({ children }) {
   const [current, setCurrent] = useState(null); // null — ещё не прочитали сохранённый выбор
 
   useEffect(() => {
@@ -65,7 +65,6 @@ export function LanguageProvider({ children, onChange }) {
   async function setLanguage(code) {
     language = code;
     setCurrent(code);
-    onChange?.(code);
     await AsyncStorage.setItem(STORAGE_KEY, code).catch(() => {});
   }
 

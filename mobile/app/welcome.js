@@ -4,15 +4,17 @@
 // Вход через Telegram:
 //   1. сервер выдаёт секретный код и ссылку на бота (api.telegramStart);
 //   2. приложение открывает бота, человек нажимает в нём «Поделиться номером»;
-//   3. тем временем приложение раз в 2 секунды спрашивает сервер, готово ли (api.telegramCheck).
+//   3. бот присылает код из 6 цифр — человек вводит его здесь и входит (api.telegramCheck).
+//      Без кода не войти: так никто не войдёт в чужой аккаунт, прислав человеку ссылку на бота.
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "../components/Button";
+import { Field } from "../components/Field";
 import { Logo } from "../components/Logo";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -24,7 +26,6 @@ import { APK_URL } from "../lib/updates";
 // в настоящем приложении демо-аккаунта нет
 const DEMO_PHONE = "+77010000001";
 const DEMO_PASSWORD = "demo2026";
-const CHECK_EVERY_MS = 2000;
 
 // Тексты переводятся при показе (t), поэтому здесь они просто по-русски
 const FEATURES = [
@@ -48,55 +49,46 @@ const FEATURES = [
   },
 ];
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 export default function WelcomeScreen() {
   const { signIn } = useAuth();
   const insets = useSafeAreaInsets();
 
-  // { code, url } — вход начат, ждём подтверждения номера в боте
+  // { code, url } — вход начат: ждём код, который бот пришлёт в Telegram
   const [waiting, setWaiting] = useState(null);
+  const [pin, setPin] = useState(""); // код из бота
+  const [pinError, setPinError] = useState(null);
   const [error, setError] = useState(null); // ошибка сервера или сети
-
-  // Пока ждём — спрашиваем сервер, подтвердил ли человек вход в боте
-  useEffect(() => {
-    if (!waiting) return;
-    let stopped = false;
-    async function check() {
-      while (!stopped) {
-        try {
-          const result = await api.telegramCheck(waiting.code);
-          if (result.done) {
-            await signIn({ token: result.token, user: result.user });
-            return;
-          }
-        } catch (e) {
-          if (e.status === 410) {
-            // Код устарел (прошло 10 минут) — начинать вход нужно заново
-            setWaiting(null);
-            setError(e.message);
-            return;
-          }
-          // Нет связи — не страшно, спросим ещё раз
-        }
-        await sleep(CHECK_EVERY_MS);
-      }
-    }
-    check();
-    return () => {
-      stopped = true;
-    };
-  }, [waiting]);
 
   // Пока ждём ответа сервера, на кнопке крутится индикатор (см. components/Button.js)
   async function startTelegram() {
     setError(null);
     try {
       const login = await api.telegramStart();
+      setPin("");
+      setPinError(null);
       setWaiting(login);
       openTelegram(login.url);
     } catch (e) {
       setError(e.message);
+    }
+  }
+
+  async function handlePin() {
+    if (!/^\d{6}$/.test(pin)) {
+      setPinError(t("Введите 6 цифр из Telegram"));
+      return;
+    }
+    setPinError(null);
+    try {
+      await signIn(await api.telegramCheck(waiting.code, pin));
+    } catch (e) {
+      if (e.status === 410) {
+        // Вход устарел (прошло 10 минут) или код 5 раз ввели неверно — начинать нужно заново
+        setWaiting(null);
+        setError(e.message);
+      } else {
+        setPinError(e.message);
+      }
     }
   }
 
@@ -164,19 +156,28 @@ export default function WelcomeScreen() {
                 </Text>
                 <Text style={styles.text}>
                   {waiting
-                    ? t("В боте SubShare нажмите «Поделиться номером», а потом вернитесь сюда — вход произойдёт сам.")
+                    ? t("В боте SubShare нажмите «Поделиться номером» — бот пришлёт код из 6 цифр. Введите его здесь.")
                     : t("Откроется бот SubShare. Поделитесь в нём номером телефона — пароль не нужен.")}
                 </Text>
               </View>
 
               {waiting ? (
                 <>
-                  <View style={styles.message}>
-                    <Ionicons name="hourglass-outline" size={18} color={colors.sapphire} />
-                    <Text style={styles.messageText}>{t("Ждём подтверждения…")}</Text>
-                  </View>
+                  <Field
+                    label={t("Код из Telegram")}
+                    value={pin}
+                    onChangeText={(text) => setPin(text.replace(/\D/g, "").slice(0, 6))}
+                    keyboardType="number-pad"
+                    autoComplete="one-time-code"
+                    textContentType="oneTimeCode"
+                    placeholder="123456"
+                    maxLength={6}
+                    error={pinError}
+                  />
+                  <Button title={t("Войти")} icon="log-in-outline" onPress={handlePin} />
                   <Button
                     title={t("Открыть Telegram")}
+                    variant="secondary"
                     icon="paper-plane"
                     onPress={() => openTelegram(waiting.url)}
                   />

@@ -68,10 +68,10 @@ async function request(method, path, body) {
 }
 
 export const api = {
-  // Вход через Telegram: telegramStart → { code, url }, затем telegramCheck(code),
-  // пока не вернёт { done: true, token, user }. login (по паролю) — только для демо.
+  // Вход через Telegram: telegramStart → { code, url }, потом telegramCheck(code, pin)
+  // с кодом из бота → { token, user }. login (по паролю) — только для демо.
   telegramStart: () => request("POST", "/login/telegram"),
-  telegramCheck: (code) => request("POST", "/login/telegram/check", { code }),
+  telegramCheck: (code, pin) => request("POST", "/login/telegram/check", { code, pin }),
   login: (phone, password) => request("POST", "/login", { phone, password }),
   // По почте: registerEmail({ name, email, phone, password }) → письмо с кодом → confirmEmail.
   // Забыли пароль: forgotPassword(email) → письмо с кодом → resetPassword. Все возвращают { token, user }
