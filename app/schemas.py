@@ -201,6 +201,13 @@ class MemberShare(BaseModel):
     name: str
     is_owner: bool
     share: int = Field(description="Доля участника в месяц, ₸")
+    rating: float | None = Field(
+        description="Средняя оценка участника от 1 до 5 звёзд. None — его ещё никто не оценил"
+    )
+    ratings_count: int = Field(description="Сколько человек его оценили")
+    my_stars: int | None = Field(
+        description="Сколько звёзд ему поставили вы. None — вы его ещё не оценивали"
+    )
 
 
 class GroupOut(BaseModel):
@@ -214,6 +221,43 @@ class GroupOut(BaseModel):
     owner_id: int
     members_count: int
     members: list[MemberShare]
+    unread_messages: int = Field(description="Новых сообщений в чате группы: вы их ещё не видели")
+
+
+# ---------- Чат группы ----------
+
+
+class MessageIn(BaseModel):
+    model_config = STRIP
+
+    text: str = Field(min_length=1, max_length=1000, examples=["Всем привет!"])
+
+
+class MessageOut(BaseModel):
+    id: int
+    user_id: int = Field(description="Кто написал")
+    user_name: str = Field(description="Имя автора")
+    text: str
+    created_at: datetime = Field(description="Когда написано (время UTC)")
+
+
+class MessagesOut(BaseModel):
+    messages: list[MessageOut] = Field(description="Сообщения — от старых к новым")
+    has_more: bool = Field(description="Есть ли сообщения ещё раньше: их отдаст запрос с before")
+
+
+# ---------- Оценки ----------
+
+
+class RatingIn(BaseModel):
+    stars: int = Field(ge=1, le=5, description="Сколько звёзд: от 1 до 5", examples=[5])
+
+
+class RatingOut(BaseModel):
+    """Мой рейтинг: средняя оценка от участников моих групп."""
+
+    rating: float | None = Field(description="Средняя оценка от 1 до 5. None — вас ещё никто не оценил")
+    ratings_count: int = Field(description="Сколько человек вас оценили")
 
 
 # ---------- Платежи ----------

@@ -10,6 +10,8 @@
     subscription_groups   — группы подписок (например, «Netflix с друзьями»)
     memberships           — кто в какой группе состоит
     payments              — начисления: кто, сколько и за какой месяц должен заплатить
+    messages              — сообщения в чатах групп
+    ratings               — оценки: участники групп ставят друг другу от 1 до 5 звёзд
 
 Все суммы хранятся в целых тенге (int), а не в дробных числах:
 с дробями (float) в деньгах легко получить ошибки округления.
@@ -21,6 +23,7 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, String, UniqueConstrain
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+from .logic import utcnow
 
 # Статусы платежа
 PAYMENT_PENDING = "pending"  # ещё не оплачено
@@ -131,6 +134,10 @@ class SubscriptionGroup(Base):
     payments: Mapped[list["Payment"]] = relationship(
         back_populates="group", cascade="all, delete-orphan"
     )
+    # Сообщения чата удаляются вместе с группой
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
 
 
 class Membership(Base):
@@ -143,6 +150,9 @@ class Membership(Base):
     group_id: Mapped[int] = mapped_column(ForeignKey("subscription_groups.id"))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     joined_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # До какого сообщения чата участник уже дочитал (id сообщения; 0 — ещё ничего не читал).
+    # Чужие сообщения новее этого — «новые»: их число видно на карточке группы
+    chat_read_id: Mapped[int] = mapped_column(default=0)
 
     group: Mapped["SubscriptionGroup"] = relationship(back_populates="memberships")
     user: Mapped["User"] = relationship(back_populates="memberships")
@@ -175,3 +185,35 @@ class Payment(Base):
 
     group: Mapped["SubscriptionGroup"] = relationship(back_populates="payments")
     user: Mapped["User"] = relationship()
+
+
+class Message(Base):
+    """Сообщение в чате группы. Читать и писать в чат могут только участники группы."""
+
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("subscription_groups.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))  # кто написал
+    text: Mapped[str] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)  # время UTC
+
+    group: Mapped["SubscriptionGroup"] = relationship(back_populates="messages")
+    user: Mapped["User"] = relationship()
+
+
+class Rating(Base):
+    """
+    Оценка: участник группы поставил другому участнику от 1 до 5 звёзд.
+    От одного человека другому — одна оценка на все группы; её можно поменять.
+    Другие видят только среднюю оценку и число оценок — без имён.
+    """
+
+    __tablename__ = "ratings"
+    __table_args__ = (UniqueConstraint("from_user_id", "to_user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    from_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))  # кто оценил
+    to_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)  # кого оценили
+    stars: Mapped[int]  # от 1 до 5
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

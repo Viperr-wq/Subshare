@@ -13,13 +13,13 @@ import hmac
 import os
 import threading
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -53,6 +53,8 @@ EMAIL_CODE_TTL = timedelta(minutes=15)
 EMAIL_RESEND_AFTER = timedelta(minutes=1)
 # Сколько раз можно ошибиться в коде из 6 цифр (из письма или от бота) — потом код сгорает
 CODE_ATTEMPTS = 5
+# Сколько сообщений чата сервер отдаёт за один запрос
+CHAT_PAGE = 50
 # Номера команды SubShare через запятую: им доступна статистика (GET /admin/stats,
 # страница admin.html на сайте). На Render задаётся в Environment. Не задано — не видит никто
 ADMIN_PHONES = {
@@ -77,7 +79,7 @@ app = FastAPI(
         "выполните `POST /login` (демо: +77010000001, пароль demo2026), скопируйте `token` "
         "из ответа, нажмите **Authorize** и вставьте его."
     ),
-    version="0.4.0",
+    version="0.5.0",
     lifespan=lifespan,
 )
 
@@ -194,6 +196,18 @@ def check_owner(group: models.SubscriptionGroup, user: models.User) -> None:
                 "Only the group owner can do this",
             ),
         )
+
+
+def find_membership(group: models.SubscriptionGroup, user_id: int) -> models.Membership | None:
+    """Участие человека в группе. None — его в группе нет."""
+    return next((m for m in group.memberships if m.user_id == user_id), None)
+
+
+def not_a_member() -> HTTPException:
+    return HTTPException(
+        status.HTTP_404_NOT_FOUND,
+        tr("Этого человека нет в группе", "Бұл адам топта жоқ", "This person is not in the group"),
+    )
 
 
 def find_user_by_phone(db: Session, phone: str) -> models.User | None:
@@ -349,9 +363,9 @@ def find_login_request(db: Session, code: str) -> models.LoginRequest | None:
     )
 
 
-def add_member_to_group(group: models.SubscriptionGroup, user_id: int) -> None:
+def add_member_to_group(db: Session, group: models.SubscriptionGroup, user_id: int) -> None:
     """Добавляет пользователя в группу, если он ещё не в ней и есть свободное место."""
-    if any(m.user_id == user_id for m in group.memberships):
+    if find_membership(group, user_id):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             tr("Этот человек уже в группе", "Бұл адам топта бар", "This person is already in the group"),
@@ -366,7 +380,11 @@ def add_member_to_group(group: models.SubscriptionGroup, user_id: int) -> None:
                 f"The group is full ({limit} members)",
             ),
         )
-    group.memberships.append(models.Membership(user_id=user_id))
+    # Прошлые сообщения чата новичок прочитать сможет, но новыми они для него не считаются
+    last_message_id = db.scalar(
+        select(func.max(models.Message.id)).where(models.Message.group_id == group.id)
+    )
+    group.memberships.append(models.Membership(user_id=user_id, chat_read_id=last_message_id or 0))
 
 
 def check_period(period: str) -> None:
@@ -499,18 +517,64 @@ def notify(tasks: BackgroundTasks, kind: str, payment: models.Payment) -> bool:
     return True
 
 
-def group_to_schema(group: models.SubscriptionGroup) -> schemas.GroupOut:
-    """Собирает ответ о группе и считает текущую долю каждого участника."""
+def average_ratings(db: Session, user_ids: list[int]) -> dict[int, tuple[float, int]]:
+    """
+    Средняя оценка (с одним знаком после запятой) и число оценок у каждого из user_ids —
+    одним запросом к базе. Кого ещё никто не оценил, того в ответе нет.
+    """
+    rows = db.execute(
+        select(models.Rating.to_user_id, func.avg(models.Rating.stars), func.count())
+        .where(models.Rating.to_user_id.in_(user_ids))
+        .group_by(models.Rating.to_user_id)
+    ).all()
+    return {user_id: (round(float(average), 1), count) for user_id, average, count in rows}
+
+
+def group_to_schema(
+    db: Session, group: models.SubscriptionGroup, user: models.User
+) -> schemas.GroupOut:
+    """
+    Собирает ответ о группе для пользователя user: долю и рейтинг каждого участника
+    (и сколько звёзд ему поставил сам user) и сколько в чате новых для user сообщений.
+    """
     shares = split_price(group.total_price, len(group.memberships))
-    members = [
-        schemas.MemberShare(
-            user_id=m.user_id,
-            name=m.user.name,
-            is_owner=m.user_id == group.owner_id,
-            share=share,
+    ids = [m.user_id for m in group.memberships]
+    ratings = average_ratings(db, ids)
+    # Оценки, которые user сам поставил участникам: {id участника: звёзды}
+    my_stars = dict(
+        db.execute(
+            select(models.Rating.to_user_id, models.Rating.stars)
+            .where(models.Rating.from_user_id == user.id)
+            .where(models.Rating.to_user_id.in_(ids))
+        ).all()
+    )
+    members = []
+    for m, share in zip(group.memberships, shares):
+        rating, count = ratings.get(m.user_id, (None, 0))
+        members.append(
+            schemas.MemberShare(
+                user_id=m.user_id,
+                name=m.user.name,
+                is_owner=m.user_id == group.owner_id,
+                share=share,
+                rating=rating,
+                ratings_count=count,
+                my_stars=my_stars.get(m.user_id),
+            )
         )
-        for m, share in zip(group.memberships, shares)
-    ]
+
+    # Новые сообщения — чужие и новее того, до которого user уже дочитал
+    unread = 0
+    me = find_membership(group, user.id)
+    if me is not None:
+        unread = db.scalar(
+            select(func.count())
+            .select_from(models.Message)
+            .where(models.Message.group_id == group.id)
+            .where(models.Message.id > me.chat_read_id)
+            .where(models.Message.user_id != user.id)
+        )
+
     return schemas.GroupOut(
         id=group.id,
         name=group.name,
@@ -522,6 +586,7 @@ def group_to_schema(group: models.SubscriptionGroup) -> schemas.GroupOut:
         owner_id=group.owner_id,
         members_count=len(members),
         members=members,
+        unread_messages=unread,
     )
 
 
@@ -542,6 +607,18 @@ def payment_to_schema(payment: models.Payment) -> schemas.PaymentOut:
         paid_at=payment.paid_at,
         owner_name=payment.group.owner.name,
         owner_phone=payment.group.owner.phone,
+    )
+
+
+def message_to_schema(message: models.Message) -> schemas.MessageOut:
+    return schemas.MessageOut(
+        id=message.id,
+        user_id=message.user_id,
+        user_name=message.user.name,
+        text=message.text,
+        # В базе время UTC без часового пояса. Отдаём его с поясом (и без долей секунды):
+        # тогда приложение покажет время по часам телефона
+        created_at=message.created_at.replace(microsecond=0, tzinfo=timezone.utc),
     )
 
 
@@ -1032,8 +1109,9 @@ def update_me(
     tags=["Профиль"],
     summary="Удалить мой аккаунт",
     description=(
-        "Удаляет аккаунт насовсем: мои группы (вместе с их участниками и счетами), "
-        "моё участие в чужих группах, мои счета и все ключи входа."
+        "Удаляет аккаунт насовсем: мои группы (вместе с их участниками, счетами и чатом), "
+        "моё участие в чужих группах, мои счета, сообщения в чатах, оценки (и мои, и мне) "
+        "и все ключи входа."
     ),
 )
 def delete_me(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1042,8 +1120,13 @@ def delete_me(user: models.User = Depends(get_current_user), db: Session = Depen
     ).all():
         db.delete(group)
     db.flush()
-    for table in (models.Payment, models.Membership, models.Token, models.LoginRequest):
+    for table in (models.Payment, models.Membership, models.Token, models.LoginRequest, models.Message):
         db.execute(delete(table).where(table.user_id == user.id))
+    db.execute(
+        delete(models.Rating).where(
+            or_(models.Rating.from_user_id == user.id, models.Rating.to_user_id == user.id)
+        )
+    )
     if user.email:
         db.execute(delete(models.EmailCode).where(models.EmailCode.email == user.email))
     db.execute(delete(models.User).where(models.User.id == user.id))
@@ -1063,7 +1146,7 @@ def my_groups(user: models.User = Depends(get_current_user), db: Session = Depen
         .where(models.Membership.user_id == user.id)
         .order_by(models.SubscriptionGroup.id)
     ).all()
-    return [group_to_schema(g) for g in groups]
+    return [group_to_schema(db, g, user) for g in groups]
 
 
 @app.get(
@@ -1081,6 +1164,17 @@ def my_debts(user: models.User = Depends(get_current_user), db: Session = Depend
         .order_by(models.Payment.due_date)
     ).all()
     return [payment_to_schema(p) for p in payments]
+
+
+@app.get(
+    "/me/rating",
+    response_model=schemas.RatingOut,
+    tags=["Профиль"],
+    summary="Мой рейтинг: средняя оценка от участников моих групп",
+)
+def my_rating(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rating, count = average_ratings(db, [user.id]).get(user.id, (None, 0))
+    return schemas.RatingOut(rating=rating, ratings_count=count)
 
 
 # ---------- Группы подписок ----------
@@ -1104,7 +1198,7 @@ def create_group(
     db.add(group)
     db.commit()
     db.refresh(group)
-    return group_to_schema(group)
+    return group_to_schema(db, group, user)
 
 
 @app.get(
@@ -1118,7 +1212,7 @@ def get_group(
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return group_to_schema(get_my_group(db, group_id, user))
+    return group_to_schema(db, get_my_group(db, group_id, user), user)
 
 
 @app.patch(
@@ -1160,7 +1254,7 @@ def update_group(
         setattr(group, field, value)
     db.commit()
     db.refresh(group)
-    return group_to_schema(group)
+    return group_to_schema(db, group, user)
 
 
 # Добавлять участника по id нарочно нельзя: так владелец мог бы, перебирая номера id,
@@ -1193,10 +1287,10 @@ def invite_member(
         db.flush()  # чтобы у нового пользователя появился id
     # Если добавить нельзя (группа полная или он уже в ней), здесь будет ошибка,
     # и новый пользователь не сохранится: db.commit() ниже не выполнится.
-    add_member_to_group(group, friend.id)
+    add_member_to_group(db, group, friend.id)
     db.commit()
     db.refresh(group)
-    return group_to_schema(group)
+    return group_to_schema(db, group, user)
 
 
 @app.delete(
@@ -1224,18 +1318,15 @@ def leave_group(
                 "The owner can't leave their own group",
             ),
         )
-    membership = next((m for m in group.memberships if m.user_id == user_id), None)
+    membership = find_membership(group, user_id)
     if membership is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            tr("Этого человека нет в группе", "Бұл адам топта жоқ", "This person is not in the group"),
-        )
+        raise not_a_member()
 
-    # Уже созданные начисления (история платежей) при выходе сохраняются.
+    # Уже созданные начисления (история платежей) и сообщения в чате при выходе сохраняются.
     group.memberships.remove(membership)
     db.commit()
     db.refresh(group)
-    return group_to_schema(group)
+    return group_to_schema(db, group, user)
 
 
 @app.delete(
@@ -1427,6 +1518,145 @@ def mark_not_received(
     db.commit()
     notify(tasks, "not_received", payment)
     return payment_to_schema(payment)
+
+
+# ---------- Чат группы ----------
+
+
+@app.get(
+    "/groups/{group_id}/messages",
+    response_model=schemas.MessagesOut,
+    tags=["Чат"],
+    summary="Сообщения в чате группы",
+    description=(
+        f"Последние {CHAT_PAGE} сообщений — от старых к новым. Есть ещё более ранние "
+        "(has_more) — их отдаст запрос с параметром before: это id самого старого из уже "
+        "полученных сообщений. Заодно отмечает сообщения прочитанными: счётчик новых "
+        "(unread_messages у группы) обнуляется. Чат видят только участники группы."
+    ),
+)
+def list_messages(
+    group_id: int,
+    before: int | None = None,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    group = get_my_group(db, group_id, user)
+    query = select(models.Message).where(models.Message.group_id == group.id)
+    if before is not None:
+        query = query.where(models.Message.id < before)
+    # Берём самые новые сообщения — на одно больше, чем отдадим: так видно, есть ли ещё
+    newest = db.scalars(
+        query.options(selectinload(models.Message.user))
+        .order_by(models.Message.id.desc())
+        .limit(CHAT_PAGE + 1)
+    ).all()
+    # Отдаём по порядку — от старых к новым
+    messages = [message_to_schema(m) for m in reversed(newest[:CHAT_PAGE])]
+    # Человек дочитал до последнего сообщения. Условие «меньше» проверяет сама база: если два
+    # запроса пришли одновременно, тот, что видел меньше сообщений, не вернёт отметку назад
+    last_id = messages[-1].id if messages else 0
+    if last_id > find_membership(group, user.id).chat_read_id:
+        db.execute(
+            update(models.Membership)
+            .where(models.Membership.group_id == group.id)
+            .where(models.Membership.user_id == user.id)
+            .where(models.Membership.chat_read_id < last_id)
+            .values(chat_read_id=last_id)
+        )
+        db.commit()
+    return schemas.MessagesOut(messages=messages, has_more=len(newest) > CHAT_PAGE)
+
+
+@app.post(
+    "/groups/{group_id}/messages",
+    response_model=schemas.MessageOut,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Чат"],
+    summary="Написать в чат группы",
+    description="Писать в чат могут все участники группы. Сообщение — до 1000 символов.",
+)
+def send_message(
+    group_id: int,
+    data: schemas.MessageIn,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    group = get_my_group(db, group_id, user)
+    message = models.Message(group_id=group.id, user_id=user.id, text=data.text)
+    db.add(message)
+    db.flush()  # чтобы у сообщения появились id и время
+    result = message_to_schema(message)
+    db.commit()
+    return result
+
+
+@app.delete(
+    "/groups/{group_id}/messages/{message_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Чат"],
+    summary="Удалить сообщение из чата",
+    description="Своё сообщение может удалить автор, а любое сообщение в группе — её владелец.",
+)
+def delete_message(
+    group_id: int,
+    message_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    group = get_my_group(db, group_id, user)
+    message = db.get(models.Message, message_id)
+    if message is None or message.group_id != group.id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            tr("Сообщение не найдено", "Хабарлама табылмады", "Message not found"),
+        )
+    if message.user_id != user.id:
+        check_owner(group, user)  # чужое сообщение может удалить только владелец группы
+    db.delete(message)
+    db.commit()
+
+
+# ---------- Оценки ----------
+
+
+@app.put(
+    "/groups/{group_id}/members/{user_id}/rating",
+    response_model=schemas.GroupOut,
+    tags=["Оценки"],
+    summary="Оценить участника группы: от 1 до 5 звёзд",
+    description=(
+        "Ставит участнику своей группы оценку или меняет прежнюю. От одного человека другому — "
+        "одна оценка, общая для всех групп. Себя оценить нельзя. Другие участники видят "
+        "только среднюю оценку и число оценок — без имён."
+    ),
+)
+def rate_member(
+    group_id: int,
+    user_id: int,
+    data: schemas.RatingIn,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    group = get_my_group(db, group_id, user)
+    if find_membership(group, user_id) is None:
+        raise not_a_member()
+    if user_id == user.id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            tr("Себя оценить нельзя", "Өзіңізді бағалауға болмайды", "You can't rate yourself"),
+        )
+    rating = db.scalar(
+        select(models.Rating)
+        .where(models.Rating.from_user_id == user.id)
+        .where(models.Rating.to_user_id == user_id)
+    )
+    if rating is None:
+        db.add(models.Rating(from_user_id=user.id, to_user_id=user_id, stars=data.stars))
+    else:
+        rating.stars = data.stars  # оценку поменяли — новой не добавляем
+    db.commit()
+    return group_to_schema(db, group, user)
 
 
 # ---------- Команда SubShare ----------

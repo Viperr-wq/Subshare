@@ -11,17 +11,19 @@
   - Netflix и Яндекс Плюс — Аружан владелец (в Яндекс Плюс счета ещё не выставлены);
   - Spotify — Аружан участник, доля ещё не оплачена;
   - YouTube Premium — Аружан участник, доля уже оплачена.
+В чатах Netflix и Spotify есть сообщения (у Аружан они новые), а участники
+поставили друг другу оценки.
 
 Если в базе уже есть пользователи, скрипт ничего не делает. Поэтому его можно
 запускать при каждом старте сервера на хостинге: демо-данные появятся только
 в пустой базе.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from app import models
 from app.database import Base, SessionLocal, engine
-from app.logic import due_date_for, hash_password, split_price
+from app.logic import due_date_for, hash_password, split_price, utcnow
 
 # Пароль всех демо-пользователей. С ним входит кнопка «Посмотреть демо» в приложении.
 DEMO_PASSWORD = "demo2026"
@@ -59,6 +61,21 @@ def bill(group, period, paid_by=()):
             payment.status = models.PAYMENT_PAID
             payment.paid_at = datetime.now(timezone.utc)
         group.payments.append(payment)
+
+
+def chat(group, lines, hours_ago):
+    """Сообщения в чате группы: lines — пары (кто, текст). Первое — hours_ago часов назад."""
+    start = utcnow() - timedelta(hours=hours_ago)
+    for i, (user, text) in enumerate(lines):
+        group.messages.append(
+            models.Message(user_id=user.id, text=text, created_at=start + timedelta(minutes=9 * i))
+        )
+
+
+def rate(db, ratings):
+    """Оценки: тройки (кто оценил, кого, сколько звёзд)."""
+    for author, member, stars in ratings:
+        db.add(models.Rating(from_user_id=author.id, to_user_id=member.id, stars=stars))
 
 
 def main():
@@ -132,6 +149,28 @@ def main():
         max_members=4,
         owner=aruzhan,
         members=[timur, aliya],
+    )
+
+    chat(
+        netflix,
+        [
+            (aruzhan, "Всем привет! Счета за этот месяц уже выставлены"),
+            (daniyar, "Перевёл через Kaspi"),
+            (madina, "Переведу сегодня вечером"),
+        ],
+        hours_ago=3,
+    )
+    chat(spotify, [(daniyar, "Напоминаю: за Spotify — до 15-го числа")], hours_ago=1)
+    rate(
+        db,
+        [
+            (daniyar, aruzhan, 5),
+            (madina, aruzhan, 5),
+            (timur, aruzhan, 4),
+            (aruzhan, daniyar, 5),
+            (madina, daniyar, 4),
+            (aruzhan, timur, 4),
+        ],
     )
 
     db.commit()

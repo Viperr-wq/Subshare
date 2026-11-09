@@ -185,6 +185,31 @@ def make_netflix_group(client):
     return group["id"], owner, friends
 
 
+def rate(client, group_id, person, target, stars):
+    """person ставит участнику target оценку — от 1 до 5 звёзд."""
+    return client.put(
+        f"/groups/{group_id}/members/{target['id']}/rating",
+        json={"stars": stars},
+        headers=person["auth"],
+    )
+
+
+def member_in(group, person):
+    """Участник person в ответе о группе."""
+    return next(m for m in group["members"] if m["user_id"] == person["id"])
+
+
+def chat_texts(client, group_id, person):
+    """Тексты последних сообщений в чате группы — как их видит person."""
+    page = client.get(f"/groups/{group_id}/messages", headers=person["auth"]).json()
+    return [m["text"] for m in page["messages"]]
+
+
+def count_rows(new_session, model):
+    with new_session() as db:
+        return db.scalar(select(func.count()).select_from(model))
+
+
 # ---------- Логика: доли и пароли ----------
 
 
@@ -771,19 +796,29 @@ def test_delete_my_account(client, new_session):
     group_id, owner, friends = make_netflix_group(client)
     daniyar = friends[0]
     client.post(f"/groups/{group_id}/payments/2026-10", headers=owner["auth"])
+    # Данияр пишет в чат и оценивает владельца, владелец — его
+    client.post(f"/groups/{group_id}/messages", json={"text": "Всем пока!"}, headers=daniyar["auth"])
+    rate(client, group_id, daniyar, owner, 4)
+    rate(client, group_id, owner, daniyar, 5)
 
-    # Участник удаляет аккаунт: он пропадает из группы вместе со своими счетами
+    # Участник удаляет аккаунт: он пропадает из группы вместе со своими счетами,
+    # сообщениями и оценками — и теми, что поставил он, и теми, что поставили ему
     assert client.delete("/me", headers=daniyar["auth"]).status_code == 204
     assert client.get("/me", headers=daniyar["auth"]).status_code == 401
     group = client.get(f"/groups/{group_id}", headers=owner["auth"]).json()
     assert daniyar["id"] not in [m["user_id"] for m in group["members"]]
     payments = client.get(f"/groups/{group_id}/payments/2026-10", headers=owner["auth"]).json()
     assert len(payments["payments"]) == 2
+    assert chat_texts(client, group_id, owner) == []
+    assert member_in(group, owner)["ratings_count"] == 0
+    assert count_rows(new_session, models.Rating) == 0
 
-    # Владелец удаляет аккаунт — его группа удаляется целиком
+    # Владелец удаляет аккаунт — его группа удаляется целиком, вместе с чатом
+    client.post(f"/groups/{group_id}/messages", json={"text": "Закрываю группу"}, headers=owner["auth"])
     assert client.delete("/me", headers=owner["auth"]).status_code == 204
     assert client.get("/me/groups", headers=friends[1]["auth"]).json() == []
     assert count_users(new_session) == 2
+    assert count_rows(new_session, models.Message) == 0
 
 
 # ---------- Ежедневные задачи: счета и напоминания ----------
@@ -925,3 +960,169 @@ def test_reset_forgotten_password(client, mails):
     assert client.get("/me", headers={"Authorization": f"Bearer {response.json()['token']}"}).status_code == 200
     assert client.post("/login/email", json={"email": EMAIL, "password": PASSWORD}).status_code == 401
     assert client.post("/login/email", json={"email": EMAIL, "password": "new-secret-1"}).status_code == 200
+
+
+# ---------- Чат группы ----------
+
+
+def test_group_chat(client):
+    group_id, owner, friends = make_netflix_group(client)
+    daniyar, madina = friends[0], friends[1]
+    url = f"/groups/{group_id}/messages"
+
+    # Пустое или слишком длинное сообщение не отправить, пробелы по краям убираются
+    assert client.post(url, json={"text": "   "}, headers=owner["auth"]).status_code == 422
+    assert client.post(url, json={"text": "а" * 1001}, headers=owner["auth"]).status_code == 422
+    sent = client.post(url, json={"text": " Всем привет! "}, headers=owner["auth"])
+    assert sent.status_code == 201
+    assert sent.json()["text"] == "Всем привет!"
+    assert sent.json()["user_name"] == "Аружан"
+    assert sent.json()["created_at"].endswith("Z")  # время UTC: приложение покажет его по своим часам
+    client.post(url, json={"text": "Привет!"}, headers=daniyar["auth"])
+
+    # Все участники видят сообщения по порядку — от старых к новым
+    page = client.get(url, headers=madina["auth"]).json()
+    assert [m["text"] for m in page["messages"]] == ["Всем привет!", "Привет!"]
+    assert page["messages"][1]["user_id"] == daniyar["id"]
+    assert page["has_more"] is False
+
+    # Посторонний чат не видит и написать в него не может
+    stranger = make_user(client, "Чужой", "+77010000009")
+    assert client.get(url, headers=stranger["auth"]).status_code == 404
+    assert client.post(url, json={"text": "Я тут"}, headers=stranger["auth"]).status_code == 404
+
+
+def test_chat_counts_new_messages(client):
+    group_id, owner, friends = make_netflix_group(client)
+    daniyar, madina = friends[0], friends[1]
+    url = f"/groups/{group_id}/messages"
+
+    def unread(person):
+        return client.get(f"/groups/{group_id}", headers=person["auth"]).json()["unread_messages"]
+
+    client.post(url, json={"text": "Пароль поменялся"}, headers=owner["auth"])
+    client.post(url, json={"text": "Какой новый?"}, headers=daniyar["auth"])
+    # Свои сообщения новыми не считаются
+    assert unread(owner) == 1
+    assert unread(daniyar) == 1
+    assert unread(madina) == 2
+    assert client.get("/me/groups", headers=madina["auth"]).json()[0]["unread_messages"] == 2
+
+    # Мадина открыла чат — новых сообщений нет, пока кто-нибудь снова не напишет
+    client.get(url, headers=madina["auth"])
+    assert unread(madina) == 0
+    client.post(url, json={"text": "Напишу в личку"}, headers=owner["auth"])
+    assert unread(madina) == 1
+
+
+def test_new_member_reads_chat_history_without_new_messages(client):
+    group_id, owner, friends = make_netflix_group(client)
+    timur = friends[2]
+    url = f"/groups/{group_id}/messages"
+    client.delete(f"/groups/{group_id}/members/{timur['id']}", headers=owner["auth"])
+    client.post(url, json={"text": "Ищем четвёртого"}, headers=owner["auth"])
+    # Кто вышел из группы, чат больше не видит
+    assert client.get(url, headers=timur["auth"]).status_code == 404
+
+    # Вернулся — прошлые сообщения прочитать может, но новыми они не считаются
+    invite = {"name": "Тимур", "phone": timur["phone"]}
+    assert client.post(f"/groups/{group_id}/invite", json=invite, headers=owner["auth"]).status_code == 200
+    assert client.get(f"/groups/{group_id}", headers=timur["auth"]).json()["unread_messages"] == 0
+    assert chat_texts(client, group_id, timur) == ["Ищем четвёртого"]
+
+
+def test_chat_history_by_pages(client, monkeypatch):
+    monkeypatch.setattr("app.main.CHAT_PAGE", 3)
+    group_id, owner, _ = make_netflix_group(client)
+    url = f"/groups/{group_id}/messages"
+    for i in range(1, 6):
+        client.post(url, json={"text": f"Сообщение {i}"}, headers=owner["auth"])
+
+    last = client.get(url, headers=owner["auth"]).json()
+    assert [m["text"] for m in last["messages"]] == ["Сообщение 3", "Сообщение 4", "Сообщение 5"]
+    assert last["has_more"] is True
+    before = last["messages"][0]["id"]
+    earlier = client.get(url, params={"before": before}, headers=owner["auth"]).json()
+    assert [m["text"] for m in earlier["messages"]] == ["Сообщение 1", "Сообщение 2"]
+    assert earlier["has_more"] is False
+
+
+def test_who_can_delete_chat_message(client):
+    group_id, owner, friends = make_netflix_group(client)
+    daniyar, madina = friends[0], friends[1]
+    url = f"/groups/{group_id}/messages"
+    typo = client.post(url, json={"text": "Опечатка"}, headers=daniyar["auth"]).json()
+    spam = client.post(url, json={"text": "Реклама"}, headers=madina["auth"]).json()
+
+    # Чужое сообщение участник удалить не может, своё — может
+    assert client.delete(f"{url}/{spam['id']}", headers=daniyar["auth"]).status_code == 403
+    assert client.delete(f"{url}/{typo['id']}", headers=daniyar["auth"]).status_code == 204
+    # Владелец группы может удалить любое сообщение в своей группе
+    assert client.delete(f"{url}/{spam['id']}", headers=owner["auth"]).status_code == 204
+    assert chat_texts(client, group_id, owner) == []
+    assert client.delete(f"{url}/{spam['id']}", headers=owner["auth"]).status_code == 404
+
+    # Сообщение из другой группы через свою группу не удалить
+    other = client.post(
+        "/groups",
+        json={"name": "Музыка", "service_name": "Spotify", "total_price": 3630, "billing_day": 15, "max_members": 6},
+        headers=daniyar["auth"],
+    ).json()
+    alien = client.post(f"/groups/{other['id']}/messages", json={"text": "Моя группа"}, headers=daniyar["auth"])
+    assert client.delete(f"{url}/{alien.json()['id']}", headers=owner["auth"]).status_code == 404
+
+
+def test_chat_is_deleted_with_group(client, new_session):
+    group_id, owner, _ = make_netflix_group(client)
+    client.post(f"/groups/{group_id}/messages", json={"text": "Всем пока"}, headers=owner["auth"])
+    assert client.delete(f"/groups/{group_id}", headers=owner["auth"]).status_code == 204
+    assert count_rows(new_session, models.Message) == 0
+
+
+# ---------- Оценки ----------
+
+
+def test_rate_group_members(client):
+    group_id, owner, friends = make_netflix_group(client)
+    daniyar, madina, timur = friends
+
+    # Пока никто никого не оценивал
+    group = client.get(f"/groups/{group_id}", headers=owner["auth"]).json()
+    assert member_in(group, daniyar)["rating"] is None
+    assert member_in(group, daniyar)["ratings_count"] == 0
+    assert member_in(group, daniyar)["my_stars"] is None
+
+    assert rate(client, group_id, owner, daniyar, 5).status_code == 200
+    group = rate(client, group_id, madina, daniyar, 4).json()
+    assert member_in(group, daniyar)["rating"] == 4.5
+    assert member_in(group, daniyar)["ratings_count"] == 2
+    assert member_in(group, daniyar)["my_stars"] == 4  # свою оценку Мадина видит, чужую — нет
+
+    # Оценку можно поменять — новой оценки при этом не появляется
+    group = rate(client, group_id, madina, daniyar, 2).json()
+    assert member_in(group, daniyar)["rating"] == 3.5
+    assert member_in(group, daniyar)["ratings_count"] == 2
+    # Средняя — с одним знаком после запятой: (5 + 2 + 4) / 3 = 3,67 → 3,7
+    group = rate(client, group_id, timur, daniyar, 4).json()
+    assert member_in(group, daniyar)["rating"] == 3.7
+    group = client.get(f"/groups/{group_id}", headers=owner["auth"]).json()
+    assert member_in(group, daniyar)["my_stars"] == 5
+
+    # Свой рейтинг человек видит в профиле
+    assert client.get("/me/rating", headers=daniyar["auth"]).json() == {"rating": 3.7, "ratings_count": 3}
+    assert client.get("/me/rating", headers=madina["auth"]).json() == {"rating": None, "ratings_count": 0}
+
+
+def test_rating_rules(client):
+    group_id, owner, friends = make_netflix_group(client)
+    daniyar = friends[0]
+    stranger = make_user(client, "Чужой", "+77010000009")
+
+    # Только от 1 до 5 звёзд
+    assert rate(client, group_id, owner, daniyar, 0).status_code == 422
+    assert rate(client, group_id, owner, daniyar, 6).status_code == 422
+    # Себя оценить нельзя
+    assert rate(client, group_id, daniyar, daniyar, 5).status_code == 400
+    # Посторонний не оценит участника, а участник — человека не из своей группы
+    assert rate(client, group_id, stranger, daniyar, 1).status_code == 404
+    assert rate(client, group_id, owner, stranger, 1).status_code == 404
