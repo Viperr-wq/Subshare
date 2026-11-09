@@ -1,4 +1,4 @@
-// Вкладка «Профиль»: кто вошёл, статистика, как работает SubShare, язык,
+// Вкладка «Профиль»: кто вошёл и его рейтинг, статистика, как работает SubShare, язык,
 // документы, выход и удаление аккаунта.
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -13,7 +13,7 @@ import { Screen } from "../../components/Screen";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useDialogs } from "../../lib/dialogs";
-import { formatMoney, formatPhone, plural } from "../../lib/format";
+import { formatMoney, formatPhone, formatRating, plural } from "../../lib/format";
 import { LANGUAGES, t, useLanguage } from "../../lib/i18n";
 import { colors, fonts, radius } from "../../lib/theme";
 import { APP_VERSION, SUPPORT_URL } from "../../lib/updates";
@@ -42,11 +42,13 @@ export default function ProfileScreen() {
   // Группы нужны только для статистики, поэтому профиль показываем сразу, не дожидаясь их:
   // даже без связи с сервером из аккаунта можно выйти
   const { data: groups, error, reload } = useLoad(() => api.getMyGroups(), [user?.id]);
+  // Рейтинг: средняя оценка от участников групп. Не загрузился — просто не показываем его
+  const { data: rating, reload: reloadRating } = useLoad(() => api.getMyRating(), [user?.id]);
   const [refreshing, setRefreshing] = useState(false);
 
   async function refresh() {
     setRefreshing(true);
-    await reload();
+    await Promise.all([reload(), reloadRating()]);
     setRefreshing(false);
   }
 
@@ -64,7 +66,7 @@ export default function ProfileScreen() {
     const ok = await confirm({
       title: t("Удалить аккаунт?"),
       message: t(
-        "Удалятся ваш профиль, ваши группы со всеми счетами и ваше участие в чужих группах. Отменить это нельзя."
+        "Удалятся ваш профиль, ваши группы со всеми счетами, ваше участие в чужих группах, ваши сообщения и оценки. Отменить это нельзя."
       ),
       confirmText: t("Удалить"),
       danger: true,
@@ -104,6 +106,7 @@ export default function ProfileScreen() {
             <Text style={styles.name}>{user.name}</Text>
             <Text style={styles.phone}>{formatPhone(user.phone)}</Text>
             {user.email ? <Text style={styles.phone}>{user.email}</Text> : null}
+            {rating ? <MyRating rating={rating} /> : null}
           </View>
         </LinearGradient>
       </View>
@@ -181,6 +184,21 @@ export default function ProfileScreen() {
 
       <Text style={styles.version}>{t("SubShare · версия {version}", { version: APP_VERSION })}</Text>
     </Screen>
+  );
+}
+
+// Мой рейтинг: средняя оценка, которую поставили участники моих групп
+function MyRating({ rating }) {
+  const count = rating.ratings_count;
+  return (
+    <View style={styles.rating}>
+      <Ionicons name="star" size={14} color={colors.star} />
+      <Text style={styles.ratingText}>
+        {count
+          ? `${formatRating(rating.rating)} · ${count} ${plural(count, "оценка", "оценки", "оценок")}`
+          : t("Пока нет оценок")}
+      </Text>
+    </View>
   );
 }
 
@@ -290,6 +308,18 @@ const styles = StyleSheet.create({
   // Имя — шрифтом Onest, а не Unbounded: в Unbounded нет казахских букв (Ә, Қ, Ұ…)
   name: { fontFamily: fonts.bold, fontSize: 22, color: colors.white },
   phone: { fontFamily: fonts.medium, fontSize: 15, color: colors.lavender },
+  rating: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 5,
+    marginTop: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: radius.round,
+    backgroundColor: "rgba(16, 23, 39, 0.22)",
+  },
+  ratingText: { fontFamily: fonts.semibold, fontSize: 13.5, color: colors.white },
 
   stats: { flexDirection: "row", gap: 12 },
   stat: { flex: 1, gap: 4 },

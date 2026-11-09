@@ -170,7 +170,6 @@ export default function WelcomeScreen() {
                     keyboardType="number-pad"
                     autoComplete="one-time-code"
                     textContentType="oneTimeCode"
-                    placeholder="123456"
                     maxLength={6}
                     error={pinError}
                   />

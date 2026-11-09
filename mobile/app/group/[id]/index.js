@@ -1,5 +1,5 @@
 // Экран группы — главный экран приложения: сколько платит каждый, чьи доли уже
-// оплачены за выбранный месяц, список участников и управление группой.
+// оплачены за выбранный месяц, вход в чат группы, участники с их оценками и управление группой.
 // Владелец видит кнопки управления, участник — свою долю и кнопку «Выйти».
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -13,6 +13,7 @@ import { Card } from "../../../components/Card";
 import { ProgressBar } from "../../../components/ProgressBar";
 import { Screen } from "../../../components/Screen";
 import { ServiceIcon } from "../../../components/ServiceIcon";
+import { Stars } from "../../../components/Stars";
 import { EmptyState, ErrorView, Loading } from "../../../components/States";
 import { paymentState, StatusBadge } from "../../../components/StatusBadge";
 import { api } from "../../../lib/api";
@@ -24,6 +25,7 @@ import {
   formatDate,
   formatMoney,
   formatPhone,
+  formatRating,
   monthName,
   periodLabel,
   periodName,
@@ -42,7 +44,7 @@ export default function GroupScreen() {
   const { id } = useLocalSearchParams();
   const groupId = Number(id);
   const { user } = useAuth();
-  const { confirm, toast } = useDialogs();
+  const { confirm, rate, toast } = useDialogs();
   const [period, setPeriod] = useState(currentPeriod());
   const [refreshing, setRefreshing] = useState(false);
 
@@ -218,6 +220,23 @@ export default function GroupScreen() {
       return [{ title: t("Отметить перевод"), icon: "checkmark", onPress: () => markSent(payment) }];
     }
     return [];
+  }
+
+  // Поставить участнику от 1 до 5 звёзд или поменять свою оценку
+  async function rateMember(member) {
+    const stars = await rate({
+      title: member.name,
+      message: t("Поставьте от 1 до 5 звёзд. Другие участники видят только среднюю оценку — без имён."),
+      stars: member.my_stars || 0,
+    });
+    if (!stars || stars === member.my_stars) return;
+    try {
+      await api.rateMember(groupId, member.user_id, stars);
+      toast(t("Оценка сохранена"));
+    } catch (error) {
+      toast(error.message);
+    }
+    await groupLoad.reload(); // новая средняя оценка (и после ошибки — вдруг человека уже убрали)
   }
 
   async function removeMember(member) {
@@ -483,6 +502,11 @@ export default function GroupScreen() {
         </Card>
       )}
 
+      {/* Чат группы: сколько там новых сообщений */}
+      {me ? (
+        <ChatCard unread={group.unread_messages} onPress={() => router.push(`/group/${groupId}/chat`)} />
+      ) : null}
+
       {/* 3. Платежи за выбранный месяц */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t("Платежи")}</Text>
@@ -534,6 +558,8 @@ export default function GroupScreen() {
                 first={index === 0}
                 actions={paymentActions(payment, isMe)}
                 onRemove={canRemove ? () => removeMember(member) : null}
+                // Оценивать можно других участников, пока вы сами в группе
+                onRate={me && !isMe ? () => rateMember(member) : null}
               />
             );
           })}
@@ -767,10 +793,10 @@ function ShareRow({ label, value, mint, border }) {
 }
 
 // Строка участника: сверху имя и кнопка удаления, под ними сумма и статус оплаты,
-// ещё ниже — «Отметить оплату». Имени отдана вся ширина: длинное («Александра
-// Константиновна») переносится на вторую строку, а не обрезается до «Александр…».
+// потом его рейтинг, ещё ниже — «Отметить оплату». Имени отдана вся ширина: длинное
+// («Александра Константиновна») переносится на вторую строку, а не обрезается до «Александр…».
 // former — человек уже вышел из группы (его счёт остался в истории): аватар и имя бледнее.
-function MemberRow({ member, payment, isMe, showStatus, first, former, actions = [], onRemove }) {
+function MemberRow({ member, payment, isMe, showStatus, first, former, actions = [], onRemove, onRate }) {
   // Если счёт за месяц есть — показываем его сумму: она запомнена при выставлении счёта
   // и может отличаться от текущей доли (цена или состав группы могли измениться)
   let sub = t("Доля {amount}", { amount: formatMoney(member.share) });
@@ -815,6 +841,8 @@ function MemberRow({ member, payment, isMe, showStatus, first, former, actions =
             <Text style={styles.memberSub}>{sub}</Text>
             {badge}
           </View>
+          {/* У тех, кто уже вышел из группы, рейтинга в списке нет */}
+          {!former ? <RatingLine member={member} onRate={onRate} /> : null}
         </View>
       </View>
 
@@ -833,6 +861,66 @@ function MemberRow({ member, payment, isMe, showStatus, first, former, actions =
         </View>
       ) : null}
     </View>
+  );
+}
+
+// Рейтинг участника: средняя оценка от других, а справа — ваша оценка ему.
+// Нажмите на неё (или на «Оценить»), чтобы поставить или поменять звёзды
+function RatingLine({ member, onRate }) {
+  const count = member.ratings_count;
+  return (
+    <View style={styles.ratingRow}>
+      <View style={styles.ratingAverage}>
+        <Ionicons name="star" size={14} color={count ? colors.star : colors.lavender} />
+        <Text style={styles.ratingText}>
+          {count
+            ? `${formatRating(member.rating)} · ${count} ${plural(count, "оценка", "оценки", "оценок")}`
+            : t("Пока нет оценок")}
+        </Text>
+      </View>
+      {onRate ? (
+        <Pressable
+          onPress={onRate}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={
+            member.my_stars ? t("Ваша оценка: {stars} из 5", { stars: member.my_stars }) : t("Оценить")
+          }
+          style={({ pressed, hovered }) => [hovered && styles.hovered, pressed && styles.pressed]}
+        >
+          {member.my_stars ? (
+            <View style={styles.myStars}>
+              <Text style={styles.ratingText}>{t("Вы:")}</Text>
+              <Stars value={member.my_stars} size={14} />
+            </View>
+          ) : (
+            <Text style={styles.rateText}>{t("Оценить")}</Text>
+          )}
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// Вход в чат группы: значок, название и сколько там новых сообщений
+function ChatCard({ unread, onPress }) {
+  return (
+    <Card onPress={onPress} style={styles.chatCard}>
+      <View style={styles.chatIcon}>
+        <Ionicons name="chatbubbles" size={22} color={colors.sapphire} />
+      </View>
+      <View style={styles.chatInfo}>
+        <Text style={styles.chatTitle}>{t("Чат группы")}</Text>
+        {unread > 0 ? (
+          <Text style={[styles.chatSub, styles.chatSubNew]}>
+            {unread} {plural(unread, "новое сообщение", "новых сообщения", "новых сообщений")}
+          </Text>
+        ) : (
+          <Text style={styles.chatSub}>{t("Новых сообщений нет")}</Text>
+        )}
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+    </Card>
   );
 }
 
@@ -949,6 +1037,21 @@ const styles = StyleSheet.create({
   contactPhone: { fontFamily: fonts.regular, fontSize: 13.5, color: colors.lavender },
 
   viewOnly: { flexDirection: "row", alignItems: "center", gap: 10 },
+
+  // Чат группы
+  chatCard: { flexDirection: "row", alignItems: "center", gap: 12 },
+  chatIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(57, 89, 191, 0.1)",
+  },
+  chatInfo: { flex: 1, gap: 2 },
+  chatTitle: { fontFamily: fonts.semibold, fontSize: 16, color: colors.text },
+  chatSub: { fontFamily: fonts.regular, fontSize: 13.5, color: colors.textMuted },
+  chatSubNew: { fontFamily: fonts.semibold, color: colors.sapphire },
   viewOnlyText: {
     flex: 1,
     fontFamily: fonts.regular,
@@ -1041,6 +1144,18 @@ const styles = StyleSheet.create({
   },
   memberSub: { fontFamily: fonts.regular, fontSize: 13.5, color: colors.textMuted },
   badge: { alignSelf: "center" },
+  ratingRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+    marginTop: 2,
+  },
+  ratingAverage: { flexDirection: "row", alignItems: "center", gap: 4 },
+  ratingText: { fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted },
+  rateText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.sapphire },
+  myStars: { flexDirection: "row", alignItems: "center", gap: 5 },
   memberActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginLeft: 54 }, // 54 = аватар 42 + отступ 12
   faded: { opacity: 0.5 },
   formerName: { color: colors.textMuted },

@@ -110,7 +110,6 @@ export default function EmailScreen() {
       label={t("Почта")}
       value={email}
       onChangeText={setEmail}
-      placeholder="name@example.com"
       keyboardType="email-address"
       autoCapitalize="none"
       autoCorrect={false}
@@ -209,7 +208,6 @@ export default function EmailScreen() {
             keyboardType="number-pad"
             autoComplete="one-time-code"
             textContentType="oneTimeCode"
-            placeholder="123456"
             maxLength={6}
             error={errors.code}
           />

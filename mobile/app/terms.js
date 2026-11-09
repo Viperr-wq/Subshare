@@ -6,7 +6,7 @@ import { getLanguage } from "../lib/i18n";
 const TEXT = {
   ru: {
     title: "Условия использования SubShare",
-    intro: "Действуют с 2 ноября 2026 года. Входя в SubShare, вы принимаете эти условия.",
+    intro: "Действуют с 9 ноября 2026 года. Входя в SubShare, вы принимаете эти условия.",
     sections: [
       [
         "Что такое SubShare",
@@ -22,7 +22,7 @@ const TEXT = {
       ],
       [
         "Ваши обязанности",
-        "Указывайте верные данные, добавляйте в группы только тех, кто согласен, и не используйте SubShare, чтобы обманывать других людей.",
+        "Указывайте верные данные, добавляйте в группы только тех, кто согласен, и не используйте SubShare, чтобы обманывать других людей. В чатах не оскорбляйте людей и не присылайте рекламу, а оценки ставьте честно. Владелец группы может удалять сообщения в её чате.",
       ],
       [
         "«Как есть»",
@@ -38,7 +38,7 @@ const TEXT = {
   kk: {
     title: "SubShare пайдалану шарттары",
     intro:
-      "2026 жылғы 2 қарашадан бастап қолданылады. SubShare-ге кіре отырып, сіз осы шарттарды қабылдайсыз.",
+      "2026 жылғы 9 қарашадан бастап қолданылады. SubShare-ге кіре отырып, сіз осы шарттарды қабылдайсыз.",
     sections: [
       [
         "SubShare деген не",
@@ -54,7 +54,7 @@ const TEXT = {
       ],
       [
         "Сіздің міндеттеріңіз",
-        "Дұрыс деректерді көрсетіңіз, топқа тек келісетін адамдарды қосыңыз және SubShare-ді басқаларды алдау үшін пайдаланбаңыз.",
+        "Дұрыс деректерді көрсетіңіз, топқа тек келісетін адамдарды қосыңыз және SubShare-ді басқаларды алдау үшін пайдаланбаңыз. Чаттарда адамдарды қорламаңыз және жарнама жібермеңіз, ал бағаларды әділ қойыңыз. Топ иесі оның чатындағы хабарламаларды өшіре алады.",
       ],
       [
         "«Қалай бар болса, солай»",
@@ -69,7 +69,7 @@ const TEXT = {
   },
   en: {
     title: "SubShare Terms of Use",
-    intro: "Effective November 2, 2026. By signing in to SubShare, you accept these terms.",
+    intro: "Effective November 9, 2026. By signing in to SubShare, you accept these terms.",
     sections: [
       [
         "What SubShare is",
@@ -85,7 +85,7 @@ const TEXT = {
       ],
       [
         "Your responsibilities",
-        "Provide accurate information, add only people who agree to be in a group, and don't use SubShare to deceive others.",
+        "Provide accurate information, add only people who agree to be in a group, and don't use SubShare to deceive others. Don't insult people or send ads in chats, and rate others fairly. A group owner can delete messages in the group's chat.",
       ],
       [
         "“As is”",

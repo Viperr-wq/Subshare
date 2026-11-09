@@ -13,6 +13,7 @@ import { Screen } from "../../components/Screen";
 import { ServiceIcon } from "../../components/ServiceIcon";
 import { EmptyState, ErrorView, Loading } from "../../components/States";
 import { paymentState, StatusBadge } from "../../components/StatusBadge";
+import { UnreadBadge } from "../../components/UnreadBadge";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { firstName, formatDate, formatMoney } from "../../lib/format";
@@ -207,7 +208,7 @@ function DebtBanner({ debts, toPay }) {
   );
 }
 
-// Карточка группы: значок, название, доля в месяц, статус оплаты и участники
+// Карточка группы: значок, название, доля в месяц, статус оплаты, новые сообщения в чате и участники
 function GroupCard({ group, userId, debts }) {
   return (
     <Card onPress={() => router.push(`/group/${group.id}`)}>
@@ -242,7 +243,10 @@ function GroupCard({ group, userId, debts }) {
         <View style={styles.statusWrap}>
           <GroupStatus group={group} userId={userId} debts={debts} />
         </View>
-        <MemberAvatars members={group.members} />
+        <View style={styles.bottomRight}>
+          {group.unread_messages > 0 ? <UnreadBadge count={group.unread_messages} /> : null}
+          <MemberAvatars members={group.members} />
+        </View>
       </View>
     </Card>
   );
@@ -402,6 +406,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   statusWrap: { flexShrink: 1 },
+  bottomRight: { flexDirection: "row", alignItems: "center", gap: 8 },
   avatars: { flexDirection: "row" },
   avatarRing: { borderRadius: radius.round, borderWidth: 2, borderColor: colors.white },
   overlap: { marginLeft: -8 },

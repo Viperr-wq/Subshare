@@ -30,7 +30,7 @@ export default function NewGroupScreen() {
 
   const [choice, setChoice] = useState(null); // выбранный «чип»: "Netflix", …, "Другое"
   const [customService, setCustomService] = useState(""); // название сервиса для «Другое»
-  const [customName, setCustomName] = useState(null); // null — название группы не меняли
+  const [name, setName] = useState(""); // название группы
   const [price, setPrice] = useState(""); // только цифры: "6000"
   // По умолчанию — сегодняшнее число: подписку обычно продлевают в тот же день месяца
   const [billingDay, setBillingDay] = useState(Math.min(new Date().getDate(), 28));
@@ -40,8 +40,6 @@ export default function NewGroupScreen() {
 
   const isOther = choice === OTHER_SERVICE.name;
   const serviceName = isOther ? customService.trim() : choice || "";
-  // Пока название не меняли вручную, оно составляется само: «Netflix вскладчину»
-  const name = customName ?? (serviceName ? t("{serviceName} вскладчину", { serviceName }) : "");
   const priceNumber = Number(price);
 
   const errors = validate({ choice, serviceName, name, price: priceNumber });
@@ -50,8 +48,6 @@ export default function NewGroupScreen() {
   function selectService(service) {
     setChoice(service.name);
     setMaxMembers(service.maxMembers);
-    // Поле названия очистили — снова подставляем название автоматически
-    if (!customName?.trim()) setCustomName(null);
   }
 
   async function handleCreate() {
@@ -96,7 +92,6 @@ export default function NewGroupScreen() {
           label={t("Название сервиса")}
           value={customService}
           onChangeText={setCustomService}
-          placeholder={t("Например, Кинопоиск")}
           maxLength={100}
           error={showErrors ? errors.service : null}
         />
@@ -106,8 +101,7 @@ export default function NewGroupScreen() {
       <Field
         label={t("Название группы")}
         value={name}
-        onChangeText={setCustomName}
-        placeholder={t("Например, Netflix вскладчину")}
+        onChangeText={setName}
         maxLength={100}
         error={showErrors ? errors.name : null}
       />
@@ -116,7 +110,6 @@ export default function NewGroupScreen() {
         value={groupDigits(price)}
         onChangeText={(text) => setPrice(cleanDigits(text))}
         keyboardType="number-pad"
-        placeholder={t("Например, 6 000")}
         error={showErrors ? errors.price : null}
       />
       <Stepper

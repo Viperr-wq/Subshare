@@ -53,8 +53,6 @@ export function PhoneField({ label = t("Номер телефона"), value, on
           value={formatPhoneDigits(value)}
           onChangeText={handleChange}
           keyboardType="phone-pad"
-          placeholder="701 234 56 78"
-          placeholderTextColor="#9AA2BC"
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           style={styles.phoneInput}

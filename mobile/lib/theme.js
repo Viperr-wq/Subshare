@@ -19,6 +19,8 @@ export const colors = {
   paid: "#35DAB9",
   pending: "#FFC857",
   overdue: "#FF6B6B",
+
+  star: "#FFC857", // звёзды оценок
 };
 
 // Названия шрифтов — такие же, как в useFonts в app/_layout.js

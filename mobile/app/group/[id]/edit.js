@@ -137,7 +137,6 @@ function EditForm({ group }) {
           label={t("Название сервиса")}
           value={customService}
           onChangeText={setCustomService}
-          placeholder={t("Например, Кинопоиск")}
           maxLength={100}
           error={showErrors ? errors.service : null}
         />
@@ -148,7 +147,6 @@ function EditForm({ group }) {
         label={t("Название группы")}
         value={name}
         onChangeText={setName}
-        placeholder={t("Например, Netflix вскладчину")}
         maxLength={100}
         error={showErrors ? errors.name : null}
       />
@@ -157,7 +155,6 @@ function EditForm({ group }) {
         value={groupDigits(price)}
         onChangeText={(text) => setPrice(cleanDigits(text))}
         keyboardType="number-pad"
-        placeholder={t("Например, 6 000")}
         error={showErrors ? errors.price : null}
       />
       <Stepper

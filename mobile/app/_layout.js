@@ -5,6 +5,7 @@
 //   app/(tabs)/...           → вкладки «Подписки», «Платежи», «Профиль»
 //   app/group/new.js         → создание группы
 //   app/group/[id]/index.js  → экран группы (id — номер группы)
+//   app/group/[id]/chat.js   → чат группы
 //   app/privacy.js, terms.js → политика конфиденциальности и условия (видны всем)
 import { Onest_400Regular, Onest_500Medium, Onest_600SemiBold, Onest_700Bold } from "@expo-google-fonts/onest";
 import { Unbounded_600SemiBold, Unbounded_700Bold } from "@expo-google-fonts/unbounded";
@@ -108,6 +109,7 @@ function RootNavigator({ fontsLoaded }) {
           <Stack.Screen name="group/[id]/index" options={{ title: t("Группа") }} />
           <Stack.Screen name="group/[id]/invite" options={{ title: t("Добавить участника") }} />
           <Stack.Screen name="group/[id]/edit" options={{ title: t("Изменить группу") }} />
+          <Stack.Screen name="group/[id]/chat" options={{ title: t("Чат группы") }} />
         </Stack.Protected>
 
         {/* Экран входа — только для тех, кто ещё не вошёл */}

@@ -60,6 +60,37 @@ export function formatDate(isoDate) {
   return `${day} ${MONTHS_GENITIVE[month - 1]}`;
 }
 
+// Время сообщения по часам телефона: «2026-11-09T05:14:39Z» → «10:14»
+export function formatTime(isoDateTime) {
+  const date = new Date(isoDateTime);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+// День по часам телефона: «2026-11-09». Так удобно сравнивать дни и передавать в formatDate
+export function localDay(dateOrIso) {
+  const date = new Date(dateOrIso);
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+// Подпись дня над сообщениями чата: «Сегодня», «Вчера», «5 ноября», а за прошлые годы — с годом
+export function dayLabel(isoDateTime) {
+  const day = localDay(isoDateTime);
+  const now = new Date();
+  if (day === localDay(now)) return t("Сегодня");
+  if (day === localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return t("Вчера");
+  const year = day.slice(0, 4);
+  if (year === String(now.getFullYear())) return formatDate(day);
+  return getLanguage() === "en" ? `${formatDate(day)}, ${year}` : `${formatDate(day)} ${year}`;
+}
+
+// Средняя оценка: 4.5 → «4,5» (по-английски — «4.5»)
+export function formatRating(value) {
+  const text = Number(value).toFixed(1);
+  return getLanguage() === "en" ? text : text.replace(".", ",");
+}
+
 // Текущий месяц в формате сервера: «2026-10»
 export function currentPeriod() {
   const now = new Date();

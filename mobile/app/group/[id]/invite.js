@@ -128,7 +128,6 @@ export default function InviteScreen() {
         label={t("Имя")}
         value={name}
         onChangeText={setName}
-        placeholder={t("Например, Тимур")}
         autoCapitalize="words"
         maxLength={100}
         error={showErrors ? errors.name : null}

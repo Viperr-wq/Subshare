@@ -7,8 +7,13 @@ import { colors, fonts } from "../lib/theme";
 
 const PALETTE = [colors.sapphire, colors.violet, colors.blue, "#1FB89A", "#E58A3A", "#D9568B"];
 
+// Цвет человека — тот же, что у его кружка (в чате им же написано его имя)
+export function avatarColor(id = 0) {
+  return PALETTE[Math.abs(id) % PALETTE.length];
+}
+
 export function Avatar({ name, id = 0, size = 40 }) {
-  const background = PALETTE[Math.abs(id) % PALETTE.length];
+  const background = avatarColor(id);
   return (
     <View
       style={[

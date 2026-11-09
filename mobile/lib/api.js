@@ -89,6 +89,7 @@ export const api = {
   deleteMe: () => request("DELETE", "/me"),
   getMyGroups: () => request("GET", "/me/groups"),
   getMyDebts: () => request("GET", "/me/debts"),
+  getMyRating: () => request("GET", "/me/rating"), // { rating, ratings_count }
 
   // Группы
   createGroup: (data) => request("POST", "/groups", data),
@@ -98,6 +99,17 @@ export const api = {
   inviteMember: (groupId, name, phone) =>
     request("POST", `/groups/${groupId}/invite`, { name, phone }),
   removeMember: (groupId, userId) => request("DELETE", `/groups/${groupId}/members/${userId}`),
+  // Оценка участника: от 1 до 5 звёзд. Сервер вернёт группу с новыми средними оценками
+  rateMember: (groupId, userId, stars) =>
+    request("PUT", `/groups/${groupId}/members/${userId}/rating`, { stars }),
+
+  // Чат группы. getMessages → { messages, has_more }: последние сообщения, а с before
+  // (id самого старого из полученных) — более ранние
+  getMessages: (groupId, before) =>
+    request("GET", `/groups/${groupId}/messages${before ? `?before=${before}` : ""}`),
+  sendMessage: (groupId, text) => request("POST", `/groups/${groupId}/messages`, { text }),
+  deleteMessage: (groupId, messageId) =>
+    request("DELETE", `/groups/${groupId}/messages/${messageId}`),
 
   // Платежи за месяц (period — строка «2026-10»)
   getPeriod: (groupId, period) => request("GET", `/groups/${groupId}/payments/${period}`),
