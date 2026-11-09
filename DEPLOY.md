@@ -181,7 +181,7 @@ Render берёт код из репозитория на GitHub. Убедите
 1. Neon → ваш проект → **SQL Editor** → выполните:
 
    ```sql
-   DROP TABLE IF EXISTS payments, memberships, tokens, login_requests, email_codes, subscription_groups, users;
+   DROP TABLE IF EXISTS messages, ratings, payments, memberships, tokens, login_requests, email_codes, subscription_groups, users;
    ```
 
    ⚠️ Это удалит **все** данные на хостинге — всех пользователей, группы и платежи.
@@ -201,9 +201,12 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(254) UNIQUE;
 ALTER TABLE login_requests ADD COLUMN IF NOT EXISTS pin_hash VARCHAR(64);
 ALTER TABLE login_requests ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS reminded_on DATE;
+-- Чат групп: до какого сообщения участник уже дочитал (ноябрь 2026)
+ALTER TABLE memberships ADD COLUMN IF NOT EXISTS chat_read_id INTEGER NOT NULL DEFAULT 0;
 ```
 
-Новые таблицы (например, `email_codes`) сервер создаст сам при запуске.
+Новые таблицы (например, `email_codes`, а для чата и оценок — `messages` и `ratings`)
+сервер создаст сам при запуске.
 
 > ⚠️ Перед тем как вставить команду, очистите окно SQL Editor (**Ctrl+A** → **Delete**):
 > **Run** выполняет всё, что в нём есть, — и старые команды из прошлого раза тоже.

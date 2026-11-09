@@ -274,11 +274,11 @@
         </label>
         <label class="field">
           <span data-t>Почта</span>
-          <input name="email" type="email" autocomplete="email" maxlength="254" placeholder="name@example.com" />
+          <input name="email" type="email" autocomplete="email" maxlength="254" />
         </label>
         <label class="field">
           <span data-t>Номер телефона</span>
-          <input name="phone" type="tel" autocomplete="tel" placeholder="+7 701 234 56 78" />
+          <input name="phone" type="tel" autocomplete="tel" />
           <small data-t>По этому номеру друзья добавят вас в группу</small>
         </label>
         <label class="field">
@@ -298,7 +298,7 @@
       <form data-step="code" id="code-form" novalidate>
         <h2 data-t>Код из письма</h2>
         <p id="code-sent"></p>
-        <input class="code-input" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" aria-label="Код" />
+        <input class="code-input" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="Код" />
         <p class="form-error" id="code-error" hidden></p>
         <button type="submit" class="btn btn-primary btn-wide" data-t>Подтвердить</button>
         <button type="button" class="link" id="code-resend" data-t>Отправить код ещё раз</button>
@@ -319,7 +319,7 @@
           <figcaption data-t>Или наведите камеру телефона на код</figcaption>
         </figure>
         <p class="hint" data-t>В боте SubShare нажмите «Поделиться номером» — бот пришлёт код из 6 цифр. Введите его здесь.</p>
-        <input class="code-input" name="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" aria-label="Код из Telegram" />
+        <input class="code-input" name="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="Код из Telegram" />
         <p class="form-error" id="pin-error" hidden></p>
         <button type="submit" class="btn btn-primary btn-wide" data-t>Войти</button>
         <p class="consent">
